@@ -16,3 +16,6 @@ init:
 init_no_wandb:
 	@pip3 install -r requirements.txt
 	@python3 src/config/config.py
+
+demo:
+	@python3 main.py --step demo
