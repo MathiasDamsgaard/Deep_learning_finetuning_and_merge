@@ -1,4 +1,4 @@
-from peft import LoraConfig
+from peft import LoraConfig #type: ignore
 from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification
 from PIL import Image
 import requests
