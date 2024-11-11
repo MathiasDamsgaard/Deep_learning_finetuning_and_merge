@@ -5,7 +5,7 @@ from baseline_model import train_model
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("BM", help="Baseline model")
-    parser.add_argument("epochs", help="Number of epochs")
+    parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
 
     args = parser.parse_args()
 
@@ -15,4 +15,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+
