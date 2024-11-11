@@ -16,6 +16,7 @@ torch = "2.1.2"
 loguru = "*"
 numpy = "*"
 transformers = "*"
+peft = "*"
 
 [build-system]
 requires = ["poetry-core"]
