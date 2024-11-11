@@ -1,6 +1,8 @@
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import pandas as pd
+from tqdm import tqdm
+
 
 
 # Define the source and destination directories
@@ -21,10 +23,23 @@ if not os.path.exists(destination_dir):
 new_size = (224, 224)
 
 # Loop through all files in the source directory
-for filename in os.listdir(data_dir):
+for filename in tqdm(os.listdir(data_dir)):
     if filename.endswith('.jpg'):
         # Open an image file
         with Image.open(os.path.join(data_dir, filename)) as img:
+            # Remove the bottom 15 pixels
+            img = img.crop((0, 0, img.width, img.height - 15))
+            # preserve the aspect ratio so padding is needed
+            width, height = img.size
+            if width > height:
+                new_height = int(new_size[0] * height / width)
+                padding = (0, (new_size[1] - new_height) // 2, 0, (new_size[1] - new_height) // 2)
+            else:
+                new_width = int(new_size[1] * width / height)
+                padding = ((new_size[0] - new_width) // 2, 0, (new_size[0] - new_width) // 2, 0)
+            
+            img = ImageOps.expand(img, padding, fill='white')
+
             # Resize the image
             resized_img = img.resize(new_size, Image.LANCZOS)
             # Save it to the destination directory
