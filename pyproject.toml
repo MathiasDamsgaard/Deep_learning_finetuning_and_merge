@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "deep-learning-finetuning-and-merge"
+version = "0.1.0"
+description = ""
+authors = ["magnusgp <s204075@student.dtu.dk>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+kagglehub = "*"
+pandas = "*"
+pillow = "*"
+torch = "2.1.2"
+loguru = "*"
+numpy = "*"
+transformers = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
