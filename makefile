@@ -8,11 +8,15 @@ default:
 	@echo "- make train: for training the model \n"
 
 init:
-	@pip3 install -r requirements.txt
+	@python3 -m pip install poetry
+	@poetry init --no-interaction
+	@poetry install
 	@echo "Please authorize the Wandb API if it's your first time using it."
 	@wandb login
 	@python3 src/config/config.py
 
 init_no_wandb:
-	@pip3 install -r requirements.txt
+	@python3 -m pip install poetry
+	@poetry init --no-interaction
+	@poetry install
 	@python3 src/config/config.py
