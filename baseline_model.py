@@ -43,7 +43,6 @@ def load_dataset(batch_size=32):
     return dataloader
 
 def train_model(epochs: int):
-
     # Load the dataset
     dataset = load_dataset()
 
@@ -53,23 +52,26 @@ def train_model(epochs: int):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Train the model
+    model.train()
     for epoch in range(epochs):
+        running_loss = 0.0
         for batch in dataset:
             inputs, labels = batch
             inputs, labels = inputs.to(device), labels.to(device)
+            
+            optimizer.zero_grad()
             outputs = model(inputs)
             loss = loss_fn(outputs.logits, labels)
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
+            
+            running_loss += loss.item()
+        
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(dataset)}")
 
     return model
 
-
-
-
 if __name__ == "__main__":
-    url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     image = Image.open(
         os.getcwd() + os.sep + "data" + os.sep + "resized_images" + os.sep + "2260088.jpg"
     )
