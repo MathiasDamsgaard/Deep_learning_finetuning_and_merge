@@ -21,5 +21,11 @@ init_no_wandb:
 	@poetry install
 	@python3 src/config/config.py
 
+data:
+	@python3 src/data/resize_data.py
+
 demo:
 	@python3 main.py --step demo
+
+train:
+	@python3 main.py --step train
