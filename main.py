@@ -1,24 +1,18 @@
-from peft import LoraConfig
-from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification
-from PIL import Image
-import requests
-from matplotlib import pyplot as plt
-import torch
+import argparse
 import os
+from baseline_model import train_model
 
-url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-image = Image.open(
-    os.getcwd() + os.sep + "data" + os.sep + "resized_images" + os.sep + "2260088.jpg"
-)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("BM", help="Baseline model")
+    parser.add_argument("epochs", help="Number of epochs")
 
+    args = parser.parse_args()
 
-processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
-model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224")
-inputs = processor(images=image, return_tensors="pt")
+    if args.BM == "baseline_model":
+        train_model(int(args.epochs))
+    
 
-outputs = model(**inputs)
-last_hidden_states = outputs.logits
-predicted_class_idx = torch.argmax(last_hidden_states).item()
-print(model.config.id2label[predicted_class_idx])
-
-print("Done!")
+if __name__ == "__main__":
+    main()
+    
