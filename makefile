@@ -20,3 +20,6 @@ init_no_wandb:
 	@poetry init --no-interaction
 	@poetry install
 	@python3 src/config/config.py
+
+demo:
+	@python3 main.py --step demo
