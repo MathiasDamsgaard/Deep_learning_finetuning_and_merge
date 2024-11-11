@@ -6,7 +6,7 @@ authors = ["magnusgp <s204075@student.dtu.dk>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.11"
 
 kagglehub = "*"
 pandas = "*"

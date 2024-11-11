@@ -10,7 +10,7 @@ default:
 init:
 	@python3 -m pip install poetry
 	@poetry init --no-interaction
-	@poetry install
+	@poetry install --no-root
 	@echo "Please authorize the Wandb API if it's your first time using it."
 	@wandb login
 	@python3 src/config/config.py
