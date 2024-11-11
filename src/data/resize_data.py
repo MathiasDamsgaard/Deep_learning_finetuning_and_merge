@@ -1,19 +1,33 @@
 import os
+
 from PIL import Image, ImageOps
 import pandas as pd
+
 from tqdm import tqdm
-
-
+from loguru import logger
 
 # Define the source and destination directories
-source_dir = os.getcwd() + '/data'
+source_dir = os.getcwd() + "/data"
 data_dir = os.path.join(source_dir, 'seryouxblaster764/fgvc-aircraft/versions/2/fgvc-aircraft-2013b/fgvc-aircraft-2013b/data/images')
+try:
+    os.listdir(data_dir)
+    
+except FileNotFoundError:
+    print("Using alternative data directory")
+    data_dir = os.path.join(source_dir, 'fgvc-aircraft-2013b/fgvc-aircraft-2013b/data/images')
+    
 destination_dir = os.path.join(source_dir, 'resized_images')
+print(destination_dir)
 
 csv_dir = os.path.join(source_dir, 'seryouxblaster764/fgvc-aircraft/versions/2')
+try:
+    os.listdir(csv_dir)
+    
+except FileNotFoundError:
+    csv_dir = source_dir
+    
 csv_files = ['train.csv', 'val.csv', 'test.csv']
 output_csv = os.path.join(source_dir, 'data.csv')
-
 
 # Create the destination directory if it doesn't exist
 if not os.path.exists(destination_dir):
@@ -45,8 +59,7 @@ for filename in tqdm(os.listdir(data_dir)):
             # Save it to the destination directory
             resized_img.save(os.path.join(destination_dir, filename))
 
-print(f"All images have been resized to {new_size}, and saved to {destination_dir}")
-
+logger.success(f"All images have been resized to {new_size}, and saved to {destination_dir}")
 
 # Combine CSV files
 combined_df = pd.concat([pd.read_csv(os.path.join(csv_dir, f)) for f in csv_files], ignore_index=True)
@@ -54,4 +67,4 @@ combined_df.reset_index(drop=True, inplace=True)  # Reset row indices
 
 # Save the combined DataFrame to a new CSV file
 combined_df.to_csv(output_csv, index=False)
-print(f"Combined CSV saved at: {output_csv}")
+logger.info(f"Combined CSV saved at: {output_csv}")
