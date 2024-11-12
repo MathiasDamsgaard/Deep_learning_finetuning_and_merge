@@ -8,13 +8,14 @@ import os
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from tqdm import tqdm
+from src.config.config import MODEL, IN_DIM, DEVICE
 
-processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
+processor = ViTImageProcessor.from_pretrained(MODEL)
 
-# Check if CUDA is available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Device:", device)
-model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224").to(device)
+# Show running device
+print("Device:", DEVICE)
+model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
 
 class CustomDataset(Dataset):
     def __init__(self, csv_file, root_dir, processor, transform=None):
@@ -42,22 +43,37 @@ def load_dataset(batch_size=32):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     return dataloader
 
-def train_model(epochs: int):
+
+def load_model(c: bool = False, path: str = None):
+    """
+    Load trained model if continiue training, else load the model from Huggingface.
+    """
+    if c:
+        model = ViTForImageClassification.from_pretrained(path).to(DEVICE)
+    else:
+        model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
+    return model
+
+def train_model(model, epochs: int):
+    """
+    Train the model for a number of epochs.
+    """
     # Load the dataset
     dataset = load_dataset()
 
-    # Define the model
-    model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224").to(device)
+    # Define the loss function and optimizer
     loss_fn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Train the model
     model.train()
+
     for epoch in range(epochs):
         running_loss = 0.0
-        for batch in dataset:
+
+        for batch in tqdm(dataset):
             inputs, labels = batch
-            inputs, labels = inputs.to(device), labels.to(device)
+            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
             
             optimizer.zero_grad()
             outputs = model(inputs)
@@ -66,16 +82,22 @@ def train_model(epochs: int):
             optimizer.step()
             
             running_loss += loss.item()
-        
+                 
         print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(dataset)}")
 
     return model
+
+def save_model(model, path):
+    """
+    Save the model to a specified path.
+    """
+    model.save_pretrained(path)
 
 if __name__ == "__main__":
     image = Image.open(
         os.getcwd() + os.sep + "data" + os.sep + "resized_images" + os.sep + "2260088.jpg"
     )
-    inputs = processor(images=image, return_tensors="pt").to(device)
+    inputs = processor(images=image, return_tensors="pt").to(DEVICE)
 
     outputs = model(**inputs)
     last_hidden_states = outputs.logits

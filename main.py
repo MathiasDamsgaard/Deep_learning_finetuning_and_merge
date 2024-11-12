@@ -16,11 +16,11 @@ import torch.optim as optim
 from loguru import logger
 
 # Custom modules
-from src.model.baseline_model import train_model
+from src.model.baseline_model import train_model, save_model, load_model
 from src.model.lora_model import LoraModel
 from src.config.config import MODEL, IN_DIM, DEVICE
 
-def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None) -> None:
+def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None, c: bool = False) -> None:
     """Main function for training and inference for the LoRA model tasks.
 
     Args:
@@ -33,10 +33,22 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
         logger.info(f"Initialized model: \n{model}")
         
     elif BM:
-        logger.info("Running baseline model step.")
-        train_model(epochs)
+        logger.info("Running baseline model.")
+        SAVE_PATH = os.path.join(os.getcwd(), "models", "baseline_model")
+        
+        model = load_model(c, SAVE_PATH)
+        if c:
+            logger.info(f"Continuing training model: \n{model}")
+        else:
+            logger.info(f"Initialized model: \n{model}")
+        
+        model = train_model(model, epochs)
+        logger.info("Model trained successfully.")
+        
+        save_model(model, SAVE_PATH)
+        logger.info("Model saved.")
 
-    
+
 if __name__ == "__main__":
     # Initialize faulthandler
     faulthandler.enable()
@@ -50,9 +62,10 @@ if __name__ == "__main__":
     parser.add_argument("--step", type=str, default=None, help="Step of the main function to execute.")
     parser.add_argument("BM", help="Baseline model", default=False, type=bool)
     parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
+    parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
     args = parser.parse_args()
     
     logger.info(f"Executing main function with step: {args.step}")
     
     # Run main function
-    main(step=args.step, BM=args.BM, epochs=args.epochs)
+    main(step=args.step, BM=args.BM, epochs=args.epochs, c=args.c)
