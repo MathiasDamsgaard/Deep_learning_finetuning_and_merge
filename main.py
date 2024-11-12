@@ -3,7 +3,7 @@ import os
 import sys
 import argparse
 import faulthandler
-from typing import Union
+from typing import Union, List, Tuple, Dict, Any, Optional
 
 # Computational modules
 import numpy as np
@@ -20,7 +20,7 @@ from src.model.baseline_model import train_model
 from src.model.lora_model import LoraModel
 from src.config.config import MODEL, IN_DIM, DEVICE
 
-def main(step: Union[str, None] = None, bm: Union[str, None] = None, epochs: Union[int, None] = None) -> None:
+def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None) -> None:
     """Main function for training and inference for the LoRA model tasks.
 
     Args:
@@ -32,9 +32,10 @@ def main(step: Union[str, None] = None, bm: Union[str, None] = None, epochs: Uni
         model = LoraModel(model_str=MODEL, in_dim=IN_DIM, device=DEVICE)
         logger.info(f"Initialized model: \n{model}")
         
-    elif bm == "baseline_model":
+    elif BM:
         logger.info("Running baseline model step.")
         train_model(epochs)
+
     
 if __name__ == "__main__":
     # Initialize faulthandler
@@ -47,11 +48,11 @@ if __name__ == "__main__":
     # Parse arguments
     parser = argparse.ArgumentParser(description="LoRA model for training and inference.")
     parser.add_argument("--step", type=str, default=None, help="Step of the main function to execute.")
-    parser.add_argument("BM", help="Baseline model")
+    parser.add_argument("BM", help="Baseline model", default=False, type=bool)
     parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
     args = parser.parse_args()
     
     logger.info(f"Executing main function with step: {args.step}")
     
     # Run main function
-    main(step=args.step, bm=args.BM, epochs=args.epochs)
+    main(step=args.step, BM=args.BM, epochs=args.epochs)
