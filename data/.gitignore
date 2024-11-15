@@ -4,3 +4,4 @@
 !.gitignore
 !get_data.py
 !resize_data.py
+!*.csv
