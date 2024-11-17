@@ -5,3 +5,4 @@
 !get_data.py
 !resize_data.py
 !data_split.py
+!*.csv

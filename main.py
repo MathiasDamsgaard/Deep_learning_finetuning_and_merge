@@ -32,7 +32,7 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
         model = LoraModel(model_str=MODEL, in_dim=IN_DIM, device=DEVICE)
         logger.info(f"Initialized model: \n{model}")
         
-    elif BM:
+    if BM:
         logger.info("Running baseline model.")
         SAVE_PATH = os.path.join(os.getcwd(), "models", "baseline_model")
         
