@@ -16,11 +16,11 @@ import torch.optim as optim
 from loguru import logger
 
 # Custom modules
-from src.model.baseline_model import train_model, save_model, load_model
+from src.model.baseline_model import train_model, save_model, load_model, model_infer, eval_predictions
 from src.model.lora_model import LoraModel
-from src.config.config import MODEL, IN_DIM, DEVICE
+from src.config.config import *
 
-def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None, c: bool = False) -> None:
+def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None, c: bool = False, i_only: bool = False) -> None:
     """Main function for training and inference for the LoRA model tasks.
 
     Args:
@@ -42,12 +42,19 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
         else:
             logger.info(f"Initialized model: \n{model}")
         
-        model = train_model(model, epochs)
-        logger.info("Model trained successfully.")
+        if not i_only:
+            model = train_model(model, epochs)
+            logger.info("Model trained successfully.")
+            
+            save_model(model, SAVE_PATH)
+            logger.info("Model saved.")
         
-        save_model(model, SAVE_PATH)
-        logger.info("Model saved.")
+        logger.info("Running inference.")
+        preds = model_infer(model)
+        #logger.info(f"Predicitions: {preds}")
 
+        acc = eval_predictions()
+        logger.info(f"Accuracy: {acc}")
 
 if __name__ == "__main__":
     # Initialize faulthandler
@@ -63,9 +70,10 @@ if __name__ == "__main__":
     parser.add_argument("BM", help="Baseline model", default=False, type=bool)
     parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
     parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
+    parser.add_argument("--i_only", help="Use this if you want to only infer with the model", action="store_true")
     args = parser.parse_args()
     
     logger.info(f"Executing main function with step: {args.step}")
     
     # Run main function
-    main(step=args.step, BM=args.BM, epochs=args.epochs, c=args.c)
+    main(step=args.step, BM=args.BM, epochs=args.epochs, c=args.c, i_only=args.i_only)
