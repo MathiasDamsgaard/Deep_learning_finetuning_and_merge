@@ -9,7 +9,8 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from tqdm import tqdm
-from src.config.config import MODEL, IN_DIM, DEVICE
+from src.config.config import *
+import torch.nn as nn
 
 processor = ViTImageProcessor.from_pretrained(MODEL)
 
@@ -36,9 +37,10 @@ class CustomDataset(Dataset):
         inputs = self.processor(images=image, return_tensors="pt")
         return inputs['pixel_values'].squeeze(), label
 
-def load_dataset(batch_size=32):
-    csv_file = os.path.join(os.getcwd(), 'data', 'data.csv')
-    root_dir = os.path.join(os.getcwd(), 'data', 'resized_images')
+def load_dataset(batch_size: int = 32, csv_file: str = None, root_dir: str = None):
+    """
+    Load the dataset from the csv file and root directory.
+    """
     dataset = CustomDataset(csv_file=csv_file, root_dir=root_dir, processor=processor)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     return dataloader
@@ -52,6 +54,25 @@ def load_model(c: bool = False, path: str = None):
         model = ViTForImageClassification.from_pretrained(path).to(DEVICE)
     else:
         model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
+    
+    # Change id2label to match the new number of classes
+    train_df = pd.read_csv(TRAIN_CSV)
+
+    # Extract unique labels
+    unique_labels = train_df['Labels'].unique()
+
+    # Create mappings
+    id2label = {int(idx): str(label) for idx, label in enumerate(unique_labels)}
+    label2id = {str(label): int(idx) for idx, label in enumerate(unique_labels)}
+
+    # Update model classifier layer and mapping functions
+    model.classifier = nn.Linear(model.config.hidden_size, len(id2label)).to(DEVICE)
+    model.config.id2label = id2label
+    model.config.label2id = label2id
+
+    # Freeze base layers
+    for param in model.base_model.parameters():
+        param.requires_grad = False
     return model
 
 def train_model(model, epochs: int):
@@ -59,7 +80,7 @@ def train_model(model, epochs: int):
     Train the model for a number of epochs.
     """
     # Load the dataset
-    dataset = load_dataset()
+    dataset = load_dataset(csv_file=TRAIN_CSV, root_dir=TRAIN_DIR)
 
     # Define the loss function and optimizer
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -92,6 +113,44 @@ def save_model(model, path):
     Save the model to a specified path.
     """
     model.save_pretrained(path)
+
+def model_infer(model):
+    """
+    Infer the model on a single image.
+    """
+    preds = []
+    test_df = pd.read_csv(TEST_CSV)
+
+    # Loop through all images in test directory and predict the class. Save the prediction into the csv file.
+    for i, row in tqdm(test_df.iterrows()):
+        img_path = os.path.join(TEST_DIR, row['filename'])
+        image = Image.open(img_path)
+        inputs = processor(images=image, return_tensors="pt").to(DEVICE)
+        outputs = model(**inputs)
+        last_hidden_states = outputs.logits
+        predicted_class_idx = torch.argmax(last_hidden_states).item()
+        predicted_class = model.config.id2label[predicted_class_idx]
+        preds.append(predicted_class)
+    
+    test_df['BM'] = preds
+    test_df.to_csv(TEST_CSV, index=False)
+    return preds
+
+def eval_predictions():
+    """
+    Evaluate the predictions.
+    """
+    # Load the test csv file
+    test_df = pd.read_csv(TEST_CSV)
+
+    # Calculate the accuracy
+    correct = 0
+    for _, row in test_df.iterrows():
+        if row['Labels'] == row['BM']:
+            correct += 1
+
+    accuracy = correct / len(test_df)
+    return accuracy
 
 if __name__ == "__main__":
     image = Image.open(
