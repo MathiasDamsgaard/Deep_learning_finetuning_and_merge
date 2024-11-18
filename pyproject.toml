@@ -15,10 +15,10 @@ pillow = "*"
 torch = "2.1.2"
 torchvision = "0.16.2"
 loguru = "*"
-numpy = "*"
+numpy = "1.26.4"
 transformers = "*"
 peft = "*"
-bitsandbytes = "*"
+bitsandbytes = "0.42.0"
 
 [build-system]
 requires = ["poetry-core"]
