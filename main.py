@@ -64,7 +64,7 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
         
     if step == "get_lora_config":
         logger.info("Running get_lora_config step.")
-        score, profiler_data = lora_loop(type_="lora", epochs=1)
+        score, profiler_data = lora_loop(type_="lora", epochs=epochs)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
         logger.info(f"Profiler data: \n {profiler_data}")
 

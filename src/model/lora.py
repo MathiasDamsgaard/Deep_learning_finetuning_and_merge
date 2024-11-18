@@ -107,7 +107,7 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
                            output_dir="hf-training-trainer",
                            report_to="wandb",
                            run_name=f"lora-run-{run_id}",
-                           logging_steps=1)
+                           logging_steps=100)
 
     trainer = Trainer(
         model=model,
@@ -133,7 +133,7 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
         record_shapes=True)
 
     # trainer.add_callback(LoggerCallback())
-    # trainer.add_callback(ProfCallback(prof = profiler))
+    trainer.add_callback(ProfCallback(prof = profiler))
     # trainer.add_callback(AccuracyResetCallback())
     trainer.train()
     if profiler:
@@ -166,9 +166,9 @@ def test_model_lora(model) -> float:
             except TypeError: # If the batch size is 1
                 total += 1
 
-            i += 1  # For debugging purposes      
-            if i == 100:
-                break
+            # i += 1  # For debugging purposes      
+            # if i == 100:
+            #     break
 
     accuracy = correct / total
     wandb.log({"test_accuracy": accuracy})
