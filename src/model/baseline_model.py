@@ -43,7 +43,7 @@ class CustomDataset(Dataset):
         }
         return item
 
-def load_dataset(batch_size: int = 32, csv_file: str = None, root_dir: str = None):
+def load_dataset(csv_file: str = None, root_dir: str = None):
     """
     Load the dataset from the csv file and root directory.
     """

@@ -2,14 +2,14 @@ from peft import LoraConfig, get_peft_model
 from peft.optimizers import create_loraplus_optimizer
 from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification
 import bitsandbytes as bnb
+import random
+import wandb
+from tqdm import tqdm
+from sklearn.metrics import accuracy_score
 from src.config.config import *
 from src.model.baseline_model import load_dataset
 from transformers import Trainer, TrainerCallback, TrainingArguments
 from torch.profiler import profile, record_function, ProfilerActivity
-
-# # Show running device
-# print("Device:", DEVICE)
-
 
 class ProfCallback(TrainerCallback):
     def __init__(self, prof):
@@ -18,6 +18,30 @@ class ProfCallback(TrainerCallback):
     def on_step_end(self, args, state, control, **kwargs):
         self.prof.step()
 
+class LoggerCallback(TrainerCallback):
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step % 50 == 0 and state.global_step > 0:
+            # Access the Trainer instance
+            trainer = kwargs["trainer"]
+
+            # Log training metrics (e.g., accuracy, loss)
+            logs = {}
+            # Access the latest logged training metrics from state.log_history
+            logs["training_accuracy"] = state.log_history[-1].get("training_accuracy", "N/A")
+            logs["step"] = state.global_step
+
+            # Run evaluation
+            eval_metrics = trainer.evaluate()
+            logs.update({f"eval_{k}": v for k, v in eval_metrics.items()})
+
+            # Log to WandB
+            wandb.log(logs)
+            
+class AccuracyResetCallback(TrainerCallback):
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        trainer = kwargs["model"]
+        trainer.total_correct = 0
+        trainer.total_samples = 0
 
 def get_lora_config(type_: str) -> LoraConfig:
     processor = ViTImageProcessor.from_pretrained(MODEL)
@@ -54,47 +78,45 @@ def get_lora_config(type_: str) -> LoraConfig:
     else:
         raise ValueError(f"Invalid type: {type_}")
 
+def compute_metrics(pred):
+    labels = pred.label_ids
+    preds = pred.predictions.argmax(-1)  # Argmax for classification
+    acc = accuracy_score(labels, preds)
+    return {"accuracy": acc}
 
 # train loop
 def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassification:
     """
     Train the model using the optimizer and return the trained model.
     """
-    # train_dataloader = load_dataset(batch_size=32, csv_file=TRAIN_CSV, root_dir=TRAIN_DIR)
-    # val_dataloader = load_dataset(batch_size=32, csv_file=VAL_CSV, root_dir=VAL_DIR)
-
-    # for epoch in range(epochs):
-    #     model.train()
-    #     for inputs, labels in train_dataloader:
-    #         inputs = inputs.to(DEVICE)
-    #         labels = labels.to(DEVICE)
-    #         optimizer.zero_grad()
-    #         outputs = model(**inputs, labels=labels)
-    #         loss = outputs.loss
-    #         loss.backward()
-    #         optimizer.step()
-
-    #     model.eval()
-    #     for inputs, labels in val_dataloader:
-    #         inputs = inputs.to(DEVICE)
-    #         labels = labels.to(DEVICE)
-    #         outputs = model(**inputs, labels=labels)
-    #         loss = outputs.loss
-    #         print(f"Epoch: {epoch}, Loss: {loss.item()}")
-
     model, optimizer = get_lora_config(type_)
 
     if optimizer is None:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-
+    def collator_fn(features):
+        batch = {
+            "pixel_values": torch.stack([f["pixel_values"] for f in features]),
+            "labels": torch.tensor([f["label"] for f in features], dtype=torch.long),
+        }
+        return batch
+    
+    run_id = random.randint(0, 1000000)
+    
+    args=TrainingArguments(num_train_epochs=epochs, 
+                           output_dir="hf-training-trainer",
+                           report_to="wandb",
+                           run_name=f"lora-run-{run_id}",
+                           logging_steps=1)
 
     trainer = Trainer(
         model=model,
         optimizers=(optimizer, None),
-        train_dataset=load_dataset(batch_size=32, csv_file=TRAIN_CSV, root_dir=TRAIN_DIR),
-        eval_dataset=load_dataset(batch_size=32, csv_file=VAL_CSV, root_dir=VAL_DIR),
-        args=TrainingArguments(num_train_epochs=epochs, output_dir="hf-training-trainer"),
+        train_dataset=load_dataset(csv_file=TRAIN_CSV, root_dir=TRAIN_DIR),
+        eval_dataset=load_dataset(csv_file=VAL_CSV, root_dir=VAL_DIR),
+        data_collator=collator_fn,
+        compute_metrics=compute_metrics,
+        args=args,
     )
         
     profiler = torch.profiler.profile(
@@ -110,36 +132,51 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
         with_stack=True,
         record_shapes=True)
 
-
-    trainer.add_callback(ProfCallback(prof = profiler))
+    # trainer.add_callback(LoggerCallback())
+    # trainer.add_callback(ProfCallback(prof = profiler))
+    # trainer.add_callback(AccuracyResetCallback())
     trainer.train()
-    profiler_data = profiler.key_averages().table(sort_by="self_cuda_time_total")
+    if profiler:
+        profiler_data = profiler.key_averages().table(sort_by="self_cuda_time_total")
 
-    return model, profiler_data
+        return model, profiler_data
+    else:
+        return model, None
 
 def test_model_lora(model) -> float:
     """
     Test the model and return the accuracy.
     """
-    test_dataloader = load_dataset(batch_size=32, csv_file=TEST_CSV, root_dir=TEST_DIR)
+    test_dataloader = load_dataset(csv_file=TEST_CSV, root_dir=TEST_DIR)
     correct = 0
     total = 0
-    
+    model = model.to(DEVICE)
+    i = 0
     with torch.no_grad():
-        for inputs, labels in test_dataloader:
-            inputs = inputs.to(DEVICE)
-            labels = labels.to(DEVICE)
-            outputs = model(**inputs)
-            _, predicted = torch.max(outputs.logits, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-    
-    return correct / total
+        for batch in tqdm(test_dataloader):
+            pixel_values = batch['pixel_values'].to(DEVICE)
+            labels = torch.tensor(batch['label']).to(DEVICE)
+
+            outputs = model(pixel_values[None, ...], labels=labels)
+            predictions = torch.argmax(torch.nn.functional.softmax(outputs.logits, dim=-1), dim=-1)  # Example for classification
+
+            correct += (predictions == labels).sum().item()
+            try:
+                total += len(labels.item())
+            except TypeError: # If the batch size is 1
+                total += 1
+
+            i += 1  # For debugging purposes      
+            if i == 100:
+                break
+
+    accuracy = correct / total
+    wandb.log({"test_accuracy": accuracy})
+    return accuracy
 
 def lora_loop(type_: str, epochs: int) -> float:
     """
     Train and test the model and return the accuracy.
     """
-
     model, profiler_data = train_model_lora(epochs, type_)
-    return test_model_lora(model, type_), profiler_data
+    return test_model_lora(model), profiler_data

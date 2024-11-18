@@ -14,12 +14,16 @@ import torch.optim as optim
 
 # Logging
 from loguru import logger
+import wandb
 
 # Custom modules
 from src.model.baseline_model import train_model, save_model, load_model, model_infer, eval_predictions
 from src.model.lora_model import LoraModel
 from src.model.lora import lora_loop
 from src.config.config import *
+
+os.environ["WANDB_PROJECT"]="LoRA_model"
+wandb.init(project="LoRA_model", mode="online")
 
 def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None, c: bool = False, i_only: bool = False) -> None:
     """Main function for training and inference for the LoRA model tasks.
@@ -60,8 +64,8 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
     if step == "get_lora_config":
         logger.info("Running get_lora_config step.")
         score, profiler_data = lora_loop(type_="lora", epochs=1)
-        logger.info(f"Score: {score}")
-
+        logger.info(f"Test Accuracy: {score * 100:.2f}%")
+        logger.info(f"Profiler data: \n {profiler_data}")
 
 if __name__ == "__main__":
     # Initialize faulthandler

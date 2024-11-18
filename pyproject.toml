@@ -20,6 +20,10 @@ transformers = "*"
 peft = "*"
 bitsandbytes = "0.42.0"
 datasets = "*"
+scikit-learn = "*"
+tqdm = "*"
+torch_tb_profiler = "*"
+tensorboard = "^2.4.1"
 
 [build-system]
 requires = ["poetry-core"]
