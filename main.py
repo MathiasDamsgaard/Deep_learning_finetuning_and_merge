@@ -18,6 +18,7 @@ from loguru import logger
 # Custom modules
 from src.model.baseline_model import train_model, save_model, load_model, model_infer, eval_predictions
 from src.model.lora_model import LoraModel
+from src.model.lora import get_lora_config
 from src.config.config import *
 
 def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None, c: bool = False, i_only: bool = False) -> None:
@@ -55,6 +56,10 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
 
         acc = eval_predictions()
         logger.info(f"Accuracy: {acc}")
+        
+    if step == "get_lora_config":
+        logger.info("Running get_lora_config step.")
+        get_lora_config(type_ = "lora")
 
 if __name__ == "__main__":
     # Initialize faulthandler
@@ -67,7 +72,7 @@ if __name__ == "__main__":
     # Parse arguments
     parser = argparse.ArgumentParser(description="LoRA model for training and inference.")
     parser.add_argument("--step", type=str, default=None, help="Step of the main function to execute.")
-    parser.add_argument("BM", help="Baseline model", default=False, type=bool)
+    parser.add_argument("--BM", help="Baseline model", default=False, type=bool)
     parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
     parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
     parser.add_argument("--i_only", help="Use this if you want to only infer with the model", action="store_true")
