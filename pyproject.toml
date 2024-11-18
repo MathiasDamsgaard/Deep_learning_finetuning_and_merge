@@ -19,6 +19,7 @@ numpy = "1.26.4"
 transformers = "*"
 peft = "*"
 bitsandbytes = "0.42.0"
+datasets = "*"
 
 [build-system]
 requires = ["poetry-core"]
