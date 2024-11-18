@@ -4,3 +4,5 @@ __pycache__
 /wandb
 .vscode
 /hf-training-trainer
+# hpc cache
+/.cache

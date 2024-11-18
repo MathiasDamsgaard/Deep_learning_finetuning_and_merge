@@ -22,6 +22,7 @@ from src.model.lora_model import LoraModel
 from src.model.lora import lora_loop
 from src.config.config import *
 
+os.environ['HF_HOME'] = '.cache/hf'
 os.environ["WANDB_PROJECT"]="LoRA_model"
 wandb.init(project="LoRA_model", mode="online")
 
