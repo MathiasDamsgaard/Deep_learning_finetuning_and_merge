@@ -6,7 +6,8 @@ from matplotlib import pyplot as plt
 import torch
 import os
 import pandas as pd
-from datasets import Dataset
+# from datasets import Dataset
+from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm
 from src.config.config import *
@@ -35,7 +36,12 @@ class CustomDataset(Dataset):
         if self.transform:
             image = self.transform(image)
         inputs = self.processor(images=image, return_tensors="pt")
-        return inputs['pixel_values'].squeeze(), label
+        # convert inputs and label to dict object
+        item = {
+            'pixel_values': inputs['pixel_values'].squeeze(),
+            'label': label
+        }
+        return item
 
 def load_dataset(batch_size: int = 32, csv_file: str = None, root_dir: str = None):
     """
