@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 import torch
 import os
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from datasets import Dataset
 from torchvision import transforms
 from tqdm import tqdm
 from src.config.config import *
@@ -42,8 +42,8 @@ def load_dataset(batch_size: int = 32, csv_file: str = None, root_dir: str = Non
     Load the dataset from the csv file and root directory.
     """
     dataset = CustomDataset(csv_file=csv_file, root_dir=root_dir, processor=processor)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return dataloader
+
+    return dataset
 
 
 def load_model(c: bool = False, path: str = None):
