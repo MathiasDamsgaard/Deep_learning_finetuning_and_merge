@@ -17,6 +17,7 @@ loguru = "*"
 numpy = "*"
 transformers = "*"
 peft = "*"
+bitsandbytes = "*"
 
 [build-system]
 requires = ["poetry-core"]
