@@ -26,7 +26,7 @@ os.environ['HF_HOME'] = '.cache/hf'
 os.environ["WANDB_PROJECT"]="LoRA_model"
 wandb.init(project="LoRA_model", mode="online")
 
-def main(step: Union[str, None] = None, epochs: int = 1, r: int = 1, c: bool = False, i_only: bool = False) -> None:
+def main(step: Union[list[str], None] = None, epochs: int = 1, r: int = 1, c: bool = False, i_only: bool = False) -> None:
     """Main function for training and inference for the LoRA model tasks.
 
     Args:
@@ -37,13 +37,13 @@ def main(step: Union[str, None] = None, epochs: int = 1, r: int = 1, c: bool = F
         i_only (bool, optional): Use this if you want to only infer with the model. Defaults to False.
     """
 
-    if step == "demo":
+    if step is None:
         logger.info("Running demo step.")
         # Initialize model
         model = LoraModel(model_str=MODEL, in_dim=IN_DIM, device=DEVICE)
         logger.info(f"Initialized model: \n{model}")
     
-    elif step == "baseline":
+    elif "baseline" in step:
         logger.info("Running baseline model.")
         SAVE_PATH = os.path.join(os.getcwd(), "models", "baseline_model")
         
@@ -67,25 +67,25 @@ def main(step: Union[str, None] = None, epochs: int = 1, r: int = 1, c: bool = F
         acc = eval_predictions()
         logger.info(f"Accuracy: {acc}")
         
-    elif step == "lora":
+    elif "lora" in step:
         logger.info("Running the lora_config step.")
         score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
         logger.info(f"Profiler data: \n {profiler_data}")
     
-    elif step == "Q_lora":
+    elif "Q_lora" in step:
         logger.info("Running the Q_lora_config step.")
         score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
         logger.info(f"Profiler data: \n {profiler_data}")
     
-    elif step == "lora_plus":
+    elif "lora_plus" in step:
         logger.info("Running the lora_plus_config step.")
         score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
         logger.info(f"Profiler data: \n {profiler_data}")
     
-    elif step == "Q_lora_plus":
+    elif "Q_lora_plus" in step:
         logger.info("Running the Q_lora_plus_config step.")
         score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
