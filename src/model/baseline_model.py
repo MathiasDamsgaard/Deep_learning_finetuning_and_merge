@@ -72,6 +72,8 @@ def load_model(c: bool = False, path: str = None):
     label2id = {str(label): int(idx) for idx, label in enumerate(unique_labels)}
 
     # Update model classifier layer and mapping functions
+    model.config.num_labels = len(id2label)
+    model.num_labels = len(id2label)
     model.classifier = nn.Linear(model.config.hidden_size, len(id2label)).to(DEVICE)
     model.config.id2label = id2label
     model.config.label2id = label2id
