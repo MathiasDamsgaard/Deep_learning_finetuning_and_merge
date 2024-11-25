@@ -66,7 +66,7 @@ def load_model(c: bool = False, path: str = None):
     unique_labels = train_df['Labels'].unique()
 
     # Create mappings
-    id2label = {}, label2id = {}
+    id2label, label2id = {}, {}
     for idx, label in enumerate(unique_labels):
         id2label[int(idx)] = str(label)
         label2id[str(label)] = int(idx)
