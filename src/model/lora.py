@@ -36,7 +36,7 @@ class LoggerCallback(TrainerCallback):
 
             # Log to WandB
             wandb.log(logs)
-            
+
 class AccuracyResetCallback(TrainerCallback):
     def on_epoch_begin(self, args, state, control, **kwargs):
         trainer = kwargs["model"]
@@ -104,8 +104,14 @@ def compute_metrics(pred):
     acc = accuracy_score(labels, preds)
     return {"accuracy": acc}
 
+
 # train loop
-def train_model_lora(epochs: int, type_:str, model = None, r: int) -> ViTForImageClassification:
+def train_model_lora(
+    epochs: int,
+    type_: str,
+    r: int,
+    model=None,
+) -> ViTForImageClassification:
     """
     Train the model using the optimizer and return the trained model.
     """
@@ -120,9 +126,9 @@ def train_model_lora(epochs: int, type_:str, model = None, r: int) -> ViTForImag
             "labels": torch.tensor([f["label"] for f in features], dtype=torch.long),
         }
         return batch
-    
+
     run_id = random.randint(0, 1000000)
-    
+
     args=TrainingArguments(num_train_epochs=epochs, 
                            output_dir="hf-training-trainer",
                            report_to="wandb",
@@ -138,7 +144,7 @@ def train_model_lora(epochs: int, type_:str, model = None, r: int) -> ViTForImag
         compute_metrics=compute_metrics,
         args=args,
     )
-        
+
     profiler = torch.profiler.profile(
         activities=[
             torch.profiler.ProfilerActivity.CPU,
@@ -162,6 +168,7 @@ def train_model_lora(epochs: int, type_:str, model = None, r: int) -> ViTForImag
         return model, profiler_data
     else:
         return model, None
+
 
 def test_model_lora(model) -> float:
     """
