@@ -68,8 +68,10 @@ def load_model(c: bool = False, path: str = None):
     unique_labels = train_df['Labels'].unique()
 
     # Create mappings
-    id2label = {int(idx): str(label) for idx, label in enumerate(unique_labels)}
-    label2id = {str(label): int(idx) for idx, label in enumerate(unique_labels)}
+    id2label = {}, label2id = {}
+    for idx, label in enumerate(unique_labels):
+        id2label[int(idx)] = str(label)
+        label2id[str(label)] = int(idx)
 
     # Update model classifier layer and mapping functions
     model.classifier = nn.Linear(model.config.hidden_size, len(id2label)).to(DEVICE)
