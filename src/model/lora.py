@@ -43,16 +43,26 @@ class AccuracyResetCallback(TrainerCallback):
         trainer.total_correct = 0
         trainer.total_samples = 0
 
-def get_lora_config(type_: str) -> LoraConfig:
+def get_lora_config(type_: str, r: int) -> LoraConfig:
     processor = ViTImageProcessor.from_pretrained(MODEL)
     base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
-    
+
     if type_ == "lora":
-        lora_config = LoraConfig(init_lora_weights="gaussian", target_modules=["query", "value"])
+        lora_config = LoraConfig(
+            r = r,
+            lora_alpha = 2 * r,
+            init_lora_weights="gaussian",
+            target_modules=["query", "value"]
+            )
         return get_peft_model(base_model, lora_config), None
     
     elif type_ == "Q_lora":
-        Q_lora_config = LoraConfig(init_lora_weights="gaussian", target_modules="all-linear")
+        Q_lora_config = LoraConfig(
+            r = r,
+            lora_alpha = 2 * r,
+            init_lora_weights="gaussian",
+            target_modules="all-linear"
+            )
         return get_peft_model(base_model, Q_lora_config), None
     
     elif type_ == "lora_plus":
@@ -62,7 +72,12 @@ def get_lora_config(type_: str) -> LoraConfig:
             lr=5e-5,
             loraplus_lr_ratio=16,
         )
-        lora_config = LoraConfig(init_lora_weights="gaussian", target_modules=["query", "value"])
+        lora_config = LoraConfig(
+            r = r,
+            lora_alpha = 2 * r,
+            init_lora_weights="gaussian",
+            target_modules=["query", "value"]
+            )
         return get_peft_model(base_model, lora_config), optimizer
 
     elif type_ == "Q_lora_plus":
@@ -72,7 +87,12 @@ def get_lora_config(type_: str) -> LoraConfig:
             lr=5e-5,
             loraplus_lr_ratio=16,
         )
-        Q_lora_config = LoraConfig(init_lora_weights="gaussian", target_modules="all-linear")
+        Q_lora_config = LoraConfig(
+            r = r,
+            lora_alpha = 2 * r,
+            init_lora_weights="gaussian",
+            target_modules="all-linear"
+            )
         return get_peft_model(base_model, Q_lora_config), optimizer
 
     else:
@@ -85,11 +105,11 @@ def compute_metrics(pred):
     return {"accuracy": acc}
 
 # train loop
-def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassification:
+def train_model_lora(epochs: int, type_:str, model = None, r: int) -> ViTForImageClassification:
     """
     Train the model using the optimizer and return the trained model.
     """
-    model, optimizer = get_lora_config(type_)
+    model, optimizer = get_lora_config(type_, r)
 
     if optimizer is None:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -133,7 +153,7 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
         record_shapes=True)
 
     # trainer.add_callback(LoggerCallback())
-    # trainer.add_callback(ProfCallback(prof = profiler))
+    trainer.add_callback(ProfCallback(prof = profiler))
     # trainer.add_callback(AccuracyResetCallback())
     trainer.train()
     if profiler:
@@ -174,9 +194,9 @@ def test_model_lora(model) -> float:
     wandb.log({"test_accuracy": accuracy})
     return accuracy
 
-def lora_loop(type_: str, epochs: int) -> float:
+def lora_loop(type_: str, epochs: int, r: int) -> float:
     """
     Train and test the model and return the accuracy.
     """
-    model, profiler_data = train_model_lora(epochs, type_)
+    model, profiler_data = train_model_lora(epochs, type_, r)
     return test_model_lora(model), profiler_data
