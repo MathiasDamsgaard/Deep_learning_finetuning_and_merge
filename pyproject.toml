@@ -24,6 +24,8 @@ scikit-learn = "*"
 tqdm = "*"
 torch_tb_profiler = "*"
 tensorboard = "^2.4.1"
+wandb = "*"
+matplotlib = "*"
 
 [build-system]
 requires = ["poetry-core"]
