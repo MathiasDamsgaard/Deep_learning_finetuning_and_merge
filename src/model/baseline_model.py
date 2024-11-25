@@ -61,10 +61,8 @@ def load_model(c: bool = False, path: str = None):
     else:
         model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
     
-    # Change id2label to match the new number of classes
+    # Get the dataset to extract unique labels
     train_df = pd.read_csv(TRAIN_CSV)
-
-    # Extract unique labels
     unique_labels = train_df['Labels'].unique()
 
     # Create mappings

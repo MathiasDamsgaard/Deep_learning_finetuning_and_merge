@@ -10,6 +10,8 @@ from src.config.config import *
 from src.model.baseline_model import load_dataset
 from transformers import Trainer, TrainerCallback, TrainingArguments
 from torch.profiler import profile, record_function, ProfilerActivity
+import pandas as pd
+import torch.nn as nn
 
 class ProfCallback(TrainerCallback):
     def __init__(self, prof):
@@ -44,8 +46,24 @@ class AccuracyResetCallback(TrainerCallback):
         trainer.total_samples = 0
 
 def get_lora_config(type_: str, r: int) -> LoraConfig:
+    # Load the model and processor
     processor = ViTImageProcessor.from_pretrained(MODEL)
     base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
+
+    # Get the dataset to extract unique labels
+    train_df = pd.read_csv(TRAIN_CSV)
+    unique_labels = train_df['Labels'].unique()
+
+    # Create mappings
+    id2label = {}, label2id = {}
+    for idx, label in enumerate(unique_labels):
+        id2label[int(idx)] = str(label)
+        label2id[str(label)] = int(idx)
+
+    # Update model classifier layer and mapping functions
+    base_model.classifier = nn.Linear(base_model.config.hidden_size, len(id2label)).to(DEVICE)
+    base_model.config.id2label = id2label
+    base_model.config.label2id = label2id
 
     if type_ == "lora":
         lora_config = LoraConfig(
