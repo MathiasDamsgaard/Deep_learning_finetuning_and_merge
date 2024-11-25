@@ -2,14 +2,19 @@ from peft import LoraConfig, get_peft_model
 from peft.optimizers import create_loraplus_optimizer
 from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification
 import bitsandbytes as bnb
+import evaluate
 import random
+from copy import deepcopy
+import numpy as np
 import wandb
+from loguru import logger
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 from src.config.config import *
-from src.model.baseline_model import load_dataset
-from transformers import Trainer, TrainerCallback, TrainingArguments
+from src.model.baseline_model import load_dataset, load_model
+from transformers import Trainer, TrainerCallback, TrainingArguments, PrinterCallback
 from torch.profiler import profile, record_function, ProfilerActivity
+from sklearn.metrics import precision_recall_fscore_support
 
 class ProfCallback(TrainerCallback):
     def __init__(self, prof):
@@ -42,10 +47,115 @@ class AccuracyResetCallback(TrainerCallback):
         trainer = kwargs["model"]
         trainer.total_correct = 0
         trainer.total_samples = 0
+        
+class EvaluateCallback(TrainerCallback):
+    def __init__(self, trainer) -> None:
+        super().__init__()
+        self._trainer = trainer
+    
+    def on_epoch_end(self, args, state, control, **kwargs):
+        if control.should_evaluate:
+            control_copy = deepcopy(control)
+            self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
+            return control_copy
+        
+class CustomTrainer(Trainer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epoch_predictions = []
+        self.epoch_labels = []
+        self.epoch_loss = []
+        self.epoch_accuracies = []
+
+    def compute_loss(self, model, inputs, num_items_in_batch):
+        """
+        MAX: Subclassed to compute training accuracy.
+
+        How the loss is computed by Trainer. By default, all models return the loss in
+        the first element.
+
+        Subclass and override for custom behavior.
+        """
+        if self.label_smoother is not None and "labels" in inputs:
+            labels = inputs.pop("labels")
+        else:
+            labels = None
+        outputs = model(**inputs)
+
+        if "labels" in inputs:
+            preds = outputs.logits.detach()
+
+            # Log accuracy
+            acc = (
+                (preds.argmax(axis=1) == inputs["labels"])
+                .type(torch.float)
+                .mean()
+                .item()
+            )
+            # Uncomment it if you want to plot the batch accuracy
+            wandb.log({"batch_accuracy": acc})  # Log accuracy
+
+            # Store predictions and labels for epoch-level metrics
+            self.epoch_predictions.append(preds.cpu().numpy())
+            self.epoch_labels.append(inputs["labels"].cpu().numpy())
+
+        # Save past state if it exists
+        if self.args.past_index >= 0:
+            self._past = outputs[self.args.past_index]
+
+        if labels is not None:
+            loss = self.label_smoother(outputs, labels)
+        else:
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            # Uncomment it if you want to plot the batch loss
+            wandb.log({"batch_loss": loss})
+            self.epoch_loss.append(loss.item())  # Store loss for epoch-level metrics
+
+        # return (loss, outputs) if return_outputs else loss
+        return loss
+    
+class CustomCallback(TrainerCallback):
+
+    def __init__(self, trainer) -> None:
+        super().__init__()
+        self._trainer = trainer
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        # Aggregate predictions and labels for the entire epoch
+        epoch_predictions = np.concatenate(self._trainer.epoch_predictions)
+        epoch_labels = np.concatenate(self._trainer.epoch_labels)
+
+        # Compute accuracy
+        accuracy = np.mean(epoch_predictions.argmax(axis=1) == epoch_labels)
+        print(f"Shape of epoch_predictions: {epoch_predictions.shape}, shape of epoch_labels: {epoch_labels.shape}")
+        logger.info(f"First 5 preds: {epoch_predictions.argmax(axis=1)[:5]}, first 5 labels: {epoch_labels[:5]}")
+        logger.info(accuracy)
+        self._trainer.epoch_accuracies.append(accuracy)
+
+        # Compute mean loss
+        mean_loss = np.mean(self._trainer.epoch_loss)
+
+        # # Compute precision, recall, and F1-score
+        # precision, recall, f1, _ = precision_recall_fscore_support(
+        #     epoch_labels, epoch_predictions.argmax(axis=1), average="weighted"
+        # )
+
+        # Log epoch-level metrics
+        wandb.log({"epoch_accuracy": accuracy, "epoch_loss": mean_loss})
+        # wandb.log({"precision": precision, "recall": recall, "f1": f1})
+
+        # Clear stored predictions, labels, and loss for the next epoch
+        self._trainer.epoch_predictions = []
+        self._trainer.epoch_labels = []
+        self._trainer.epoch_loss = []
+        return None
 
 def get_lora_config(type_: str) -> LoraConfig:
     processor = ViTImageProcessor.from_pretrained(MODEL)
-    base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
+    # base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
+    
+    base_model = load_model()
     
     if type_ == "lora":
         lora_config = LoraConfig(init_lora_weights="gaussian", target_modules=["query", "value"])
@@ -79,10 +189,11 @@ def get_lora_config(type_: str) -> LoraConfig:
         raise ValueError(f"Invalid type: {type_}")
 
 def compute_metrics(pred):
+    metric = evaluate.get_metric("accuracy")
     labels = pred.label_ids
     preds = pred.predictions.argmax(-1)  # Argmax for classification
-    acc = accuracy_score(labels, preds)
-    return {"accuracy": acc}
+    wandb.log(accuracy_score(labels, preds))
+    return metric.compute(predictions=preds, references=labels)
 
 # train loop
 def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassification:
@@ -97,7 +208,7 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
     def collator_fn(features):
         batch = {
             "pixel_values": torch.stack([f["pixel_values"] for f in features]),
-            "labels": torch.tensor([f["label"] for f in features], dtype=torch.long),
+            "labels": torch.tensor([f["label"] for f in features], dtype=torch.long)
         }
         return batch
     
@@ -107,7 +218,10 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
                            output_dir="hf-training-trainer",
                            report_to="wandb",
                            run_name=f"lora-run-{run_id}",
-                           logging_steps=100)
+                           logging_steps=50,
+                           do_eval=True,
+                           eval_strategy="steps",
+                           eval_steps=50,)
 
     trainer = Trainer(
         model=model,
@@ -135,6 +249,7 @@ def train_model_lora(epochs: int, type_:str, model = None) -> ViTForImageClassif
     # trainer.add_callback(LoggerCallback())
     trainer.add_callback(ProfCallback(prof = profiler))
     # trainer.add_callback(AccuracyResetCallback())
+    trainer.remove_callback(PrinterCallback)
     trainer.train()
     if profiler:
         profiler_data = profiler.key_averages().table(sort_by="self_cuda_time_total")
@@ -166,15 +281,67 @@ def test_model_lora(model) -> float:
             except TypeError: # If the batch size is 1
                 total += 1
 
-            # i += 1  # For debugging purposes      
-            # if i == 100:
-            #     break
-
     accuracy = correct / total
     wandb.log({"test_accuracy": accuracy})
     return accuracy
 
-def lora_loop(type_: str, epochs: int) -> float:
+def train_model_lora_wandb():
+    """
+    Train the model using W&B sweep parameters and return the trained model.
+    """
+    wandb.init(reinit=True)  # Ensures reinitialization for sweeps
+
+    config = wandb.config
+    model, optimizer = get_lora_config(config.type)
+
+    if optimizer is None:
+        optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+
+    def collator_fn(features):
+        batch = {
+            "pixel_values": torch.stack([f["pixel_values"] for f in features]),
+            "labels": torch.tensor([f["label"] for f in features], dtype=torch.long)
+        }
+        return batch
+
+    run_id = random.randint(0, 1000000)
+    
+    args = TrainingArguments(
+        num_train_epochs=config.epochs,
+        per_device_train_batch_size=config.batch_size,
+        output_dir="hf-training-trainer",
+        report_to="wandb",
+        run_name=f"lora-run-{run_id}",
+        logging_steps=10,
+        do_eval=True,
+        eval_steps=50,
+    )
+
+    trainer = CustomTrainer(
+        model=model,
+        optimizers=(optimizer, None),
+        train_dataset=load_dataset(csv_file=TRAIN_CSV, root_dir=TRAIN_DIR),
+        eval_dataset=load_dataset(csv_file=VAL_CSV, root_dir=VAL_DIR),
+        data_collator=collator_fn,
+        compute_metrics=compute_metrics,
+        args=args,
+    )
+    
+    trainer.add_callback(CustomCallback(trainer))
+
+    logger.info("Training model...")
+    trainer.train()
+    logger.success("Training complete, evaluating...")
+    eval_results = trainer.evaluate()
+    logger.success(f"Eval results: {eval_results}")
+
+    wandb.log(eval_results)  # Log the results for W&B Sweep tracking
+    
+    logger.success(f"Training accuracy: {trainer.epoch_accuracies}")
+    
+    return trainer.epoch_accuracies[-1] # target metric
+
+def lora_loop(type_: str, epochs: int, do_sweep: bool = False) -> float:
     """
     Train and test the model and return the accuracy.
     """
