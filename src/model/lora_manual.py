@@ -165,13 +165,13 @@ def run_sweep(type_: str):
     sweep_config = {
         "method": "bayes",
         "metric": {"name": "eval_accuracy", "goal": "maximize"},
-        "parameters": {
-            "learning_rate": {"values": [1e-3, 1e-4, 1e-5]},
+        "parameters": { # hyperparams: lr should be continous
+            "learning_rate": {"min": 1e-5, "max": 1e-3},
             "batch_size": {"values": [8, 16, 32]},
-            "epochs": {"values": [5, 10, 15]},
+            "epochs": {"min": 3, "max": 15},
             "type": {"values": [type_]},
-            "r": {"values": [2, 4, 8, 16]}, # Rank of the LORA matrix
-            "lora_alpha": {"values": [0.1, 0.5, 1.0, 2.0]}, # Alpha parameter for LORA
+            "r": {"values": [4, 8, 16]}, # Rank of the LORA matrix
+            "lora_alpha": {"values": [0.5, 1.0, 2.0]}, # Alpha parameter for LORA
         },
     }
     sweep_id = wandb.sweep(sweep_config, project="lora-sweep")
