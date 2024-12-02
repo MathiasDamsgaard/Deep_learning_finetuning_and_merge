@@ -5,6 +5,8 @@ import requests
 from matplotlib import pyplot as plt
 import torch
 import os
+import wandb
+from loguru import logger
 import pandas as pd
 # from datasets import Dataset
 from torch.utils.data import Dataset
@@ -89,7 +91,7 @@ def train_model(model, epochs: int):
     """
     # Load the dataset
     dataset = load_dataset(csv_file=TRAIN_CSV, root_dir=TRAIN_DIR)
-
+    wandb.init(project="LoRA_model", mode="online")
     # Define the loss function and optimizer
     loss_fn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -101,18 +103,21 @@ def train_model(model, epochs: int):
         running_loss = 0.0
 
         for batch in tqdm(dataset):
-            inputs, labels = batch
-            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            inputs = batch['pixel_values'].unsqueeze(0).to(DEVICE)
+            labels = torch.tensor([batch['label']]).to(DEVICE)
             
             optimizer.zero_grad()
+            # logger.debug(f"Inputs: {inputs.shape}, Labels: {labels.shape}")
+            # logger.debug(f"Input w. batch dim {inputs.unsqueeze(0).shape}, {inputs[:, None].shape}")
+            # return None
             outputs = model(inputs)
             loss = loss_fn(outputs.logits, labels)
             loss.backward()
             optimizer.step()
             
             running_loss += loss.item()
-                 
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(dataset)}")
+        wandb.log({"Loss": running_loss/len(dataset)})
+        # print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(dataset)}")
 
     return model
 

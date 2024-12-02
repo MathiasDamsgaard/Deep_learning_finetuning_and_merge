@@ -5,8 +5,7 @@ import argparse
 import faulthandler
 from typing import Union, List, Tuple, Dict, Any, Optional
 
-print(os.getcwd())
-os.environ['HF_HOME'] = '.cache/hf'
+os.environ['HF_HOME'] = os.path.join(os.getcwd(), ".cache/hf")
 os.environ["WANDB_PROJECT"]="LoRA_model"
 
 # Computational modules
@@ -29,17 +28,32 @@ from src.config.config import *
 
 # wandb.init(project="LoRA_model", mode="online")
 
-def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, None] = None, c: bool = False, i_only: bool = False, type_: str = "lora") -> None:
+def main(step: Union[str, None] = None, 
+         BM: bool = False, 
+         epochs: Union[int, None] = None, 
+         c: bool = False, 
+         i_only: bool = False, 
+         type_: str = "lora",
+         config: dict = None) -> None:
+    
     """Main function for training and inference for the LoRA model tasks.
 
     Args:
-        step (str, optional): Step of the main function to execute. Defaults to None.
+        step (str): Step of the main function to execute.
+        BM (bool): Baseline model.
+        epochs (int): Number of epochs.
+        c (bool): Use this if you want to continue training.
+        i_only (bool): Use this if you want to only infer with the model.
+        type_ (str): Type of model.
+        config (dict): Configuration dictionary for the model.
+        
+    Returns:
+        None
     """
-    if step == "demo":
-        logger.info("Running demo step.")
-        # Initialize model
-        model = LoraModel(model_str=MODEL, in_dim=IN_DIM, device=DEVICE)
-        logger.info(f"Initialized model: \n{model}")
+        
+    if step == "train":
+        logger.info(f"Running train step for model type {type_}.")
+        score = lora_loop(type_, epochs, config=config)
         
     elif step == "get_lora_config":
         logger.info("Running get_lora_config step.")
@@ -50,7 +64,6 @@ def main(step: Union[str, None] = None, BM: bool = False, epochs: Union[int, Non
     elif step == "sweep_manual":
         logger.info("Running sweep_manual step.")
         lora_loop(type_=type_, do_sweep=True)
-        lora_loop(type_=type_, do_sweep=False)
         
     if BM:
         logger.info("Running baseline model.")
@@ -97,9 +110,26 @@ if __name__ == "__main__":
     parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
     parser.add_argument("--i_only", help="Use this if you want to only infer with the model", action="store_true")
     parser.add_argument("--type", help="Type of model", default="lora", type=str)
+    parser.add_argument("--learning_rate", help="Learning rate", default=0.0015, type=float)
+    parser.add_argument("--batch_size", help="Batch size", default=8, type=int)
+    parser.add_argument("--r", help="r", default=32, type=int)
+    parser.add_argument("--lora_alpha", help="lora_alpha", default=4.0, type=float)
+    parser.add_argument("--loraplus_lr_ratio", help="loraplus_lr_ratio", default=32, type=int)
+    parser.add_argument("--dropout", help="Dropout", default=0.1, type=float)
     args = parser.parse_args()
+    
+    print(args.i_only)
+    
+    # Create a configuration dict from the arguments as  config = {"learning_rate": 1.5e-4, 
+                #   "batch_size": 8, 
+                #   "r": 32, 
+                #   "lora_alpha": 4.0, 
+                #   "loraplus_lr_ratio": 32,
+                #   "dropout": 0.2}
+                
+    config = {key: value for key, value in args.__dict__.items() if key not in ["step", "BM", "epochs", "c", "i_only", "type"]}
 
     logger.info(f"Executing main function with step: {args.step}")
 
     # Run main function
-    main(step=args.step, BM=args.BM, epochs=args.epochs, c=args.c, i_only=args.i_only, type_=args.type)
+    main(args.step, args.BM, args.epochs, args.c, args.i_only, args.type, config)
