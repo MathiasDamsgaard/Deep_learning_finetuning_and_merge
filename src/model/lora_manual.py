@@ -208,7 +208,7 @@ class LoRATrainer:
                 labels = batch["label"].to(self.device)
                 outputs = self.model(pixel_values)
                 predicted_class_idx = outputs.logits.argmax(dim=1).cpu().tolist()
-                predicted_class = [test_df['Labels'][idx] for idx in predicted_class_idx]
+                predicted_class = [self.model.config.id2label[idx] for idx in predicted_class_idx]
                 correct_predictions += sum([1 for idx in range(len(predicted_class)) if predicted_class[idx] == labels[idx]])
                 preds.extend(predicted_class)
 
@@ -644,7 +644,7 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
             # trainer.visualize_misclassifications(f"{type_}_44971", image_root_dir=TEST_DIR, saliency=True)
         res = trainer.evaluate()
         logger.info(res["eval_accuracy"])
-        _, col_name = trainer.model_infer(load_dataset(VAL_CSV, VAL_DIR))
+        _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
         acc = trainer.eval_predictions(col_name)
         logger.success(f"Model trained on entire training set. Inference results: {acc}")
         wandb.finish()
