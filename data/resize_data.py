@@ -32,11 +32,17 @@ for filename in tqdm(os.listdir(data_dir)):
             # preserve the aspect ratio so padding is needed
             width, height = img.size
             if width > height:
-                new_height = int(new_size[0] * height / width)
-                padding = (0, (new_size[1] - new_height) // 2, 0, (new_size[1] - new_height) // 2)
+                # new_height = int(new_size[0] * height / width)
+                # padding = (0, (new_size[1] - new_height) // 2, 0, (new_size[1] - new_height) // 2)
+
+                new_height = width - height
+                padding = (0, new_height // 2, 0, new_height // 2)
             else:
-                new_width = int(new_size[1] * width / height)
-                padding = ((new_size[0] - new_width) // 2, 0, (new_size[0] - new_width) // 2, 0)
+                # new_width = int(new_size[1] * width / height)
+                # padding = ((new_size[0] - new_width) // 2, 0, (new_size[0] - new_width) // 2, 0)
+
+                new_width = height - width
+                padding = (new_width // 2, 0, new_width // 2, 0)
             
             img = ImageOps.expand(img, padding, fill='white')
 
