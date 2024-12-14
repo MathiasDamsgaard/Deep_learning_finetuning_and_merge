@@ -6,3 +6,5 @@ __pycache__
 /hf-training-trainer
 # hpc cache
 /.cache
+/hpc/logs
+/hpc/venvs

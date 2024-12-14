@@ -18,7 +18,6 @@ loguru = "*"
 numpy = "1.26.4"
 transformers = "*"
 peft = "*"
-bitsandbytes = "0.42.0"
 datasets = "*"
 scikit-learn = "*"
 tqdm = "*"
@@ -26,6 +25,8 @@ torch_tb_profiler = "*"
 tensorboard = "^2.4.1"
 wandb = "*"
 matplotlib = "*"
+evaluate = "*"
+bitsandbytes = "^0.44.1"
 
 [build-system]
 requires = ["poetry-core"]

@@ -6,6 +6,7 @@ IN_DIM = 224
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 DATA_DIR = os.path.join(os.getcwd(), "data", "resized_images")
+FULL_DATA_DIR = os.path.join(os.getcwd(), "data", "resized_images", "full_data")
 TRAIN_DIR = os.path.join(DATA_DIR, "train")
 VAL_DIR = os.path.join(DATA_DIR, "val")
 TEST_DIR = os.path.join(DATA_DIR, "test")
