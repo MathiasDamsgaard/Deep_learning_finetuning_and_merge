@@ -69,27 +69,27 @@ def main(step: Union[list[str], None] = None, epochs: int = 1, r: int = 1, c: bo
         
     elif "lora" in step:
         logger.info("Running the lora_config step.")
-        score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
+        score = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
-        logger.info(f"Profiler data: \n {profiler_data}")
+
     
     elif "Q_lora" in step:
         logger.info("Running the Q_lora_config step.")
-        score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
+        score = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
-        logger.info(f"Profiler data: \n {profiler_data}")
+
     
     elif "lora_plus" in step:
         logger.info("Running the lora_plus_config step.")
-        score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
+        score = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
-        logger.info(f"Profiler data: \n {profiler_data}")
+
     
     elif "Q_lora_plus" in step:
         logger.info("Running the Q_lora_plus_config step.")
-        score, profiler_data = lora_loop(type_=step, epochs=epochs, r=r)
+        score = lora_loop(type_=step, epochs=epochs, r=r)
         logger.info(f"Test Accuracy: {score * 100:.2f}%")
-        logger.info(f"Profiler data: \n {profiler_data}")
+
     
     else:
         logger.error(f"Invalid step: {step}.")
@@ -111,7 +111,7 @@ if __name__ == "__main__":
         help="Step of the main function to execute.",
     )
     parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
-    parser.add_argument("--r", help="Rank to use", default=1, type=int)
+    parser.add_argument("--r", help="Rank to use", default=8, type=int)
     parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
     parser.add_argument("--i_only", help="Use this if you want to only infer with the model", action="store_true")
     args = parser.parse_args()
