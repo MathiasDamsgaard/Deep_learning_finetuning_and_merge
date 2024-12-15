@@ -153,7 +153,7 @@ class CustomCallback(TrainerCallback):
         self._trainer.epoch_loss = []
         return None
 
-def get_lora_config(type_: str) -> LoraConfig:
+def get_lora_config(type_: str, r: int = 16) -> LoraConfig:
     processor = ViTImageProcessor.from_pretrained(MODEL)
     # base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
     
@@ -373,5 +373,5 @@ def lora_loop(type_: str, epochs: int, do_sweep: bool = False) -> float:
     """
     Train and test the model and return the accuracy.
     """
-    model, profiler_data = train_model_lora(epochs, type_, r)
+    model, profiler_data = train_model_lora(epochs, type_, r=16)
     return test_model_lora(model), profiler_data
