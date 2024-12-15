@@ -28,8 +28,7 @@ from src.config.config import *
 
 # wandb.init(project="LoRA_model", mode="online")
 
-def main(step: Union[str, None] = None, 
-         BM: bool = False, 
+def main(step: Union[str, None] = None,
          epochs: Union[int, None] = None, 
          c: bool = False, 
          i_only: bool = False, 
@@ -65,7 +64,7 @@ def main(step: Union[str, None] = None,
         logger.info("Running sweep_manual step.")
         lora_loop(type_=type_, do_sweep=True)
         
-    if BM:
+    if step == "BM":
         logger.info("Running baseline model.")
         SAVE_PATH = os.path.join(os.getcwd(), "models", "baseline_model")
         
@@ -131,4 +130,4 @@ if __name__ == "__main__":
     logger.info(f"Executing main function with step: {args.step}")
 
     # Run main function
-    main(args.step, args.BM, args.epochs, args.c, args.i_only, args.type, config)
+    main(args.step, args.epochs, args.c, args.i_only, args.type, config)
