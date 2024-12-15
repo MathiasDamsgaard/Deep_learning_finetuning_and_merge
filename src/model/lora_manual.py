@@ -7,13 +7,17 @@ import numpy as np
 import torch
 import wandb
 from loguru import logger
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.optimizers import create_loraplus_optimizer
 from sklearn.model_selection import KFold
 from torch import nn
 from torch.utils.data import Subset, DataLoader
 from tqdm import tqdm
-from transformers import ViTForImageClassification
+from transformers import (
+    ViTForImageClassification,
+    BitsAndBytesConfig,
+    AutoModelForCausalLM,
+)
 from torch.optim.lr_scheduler import StepLR
 import pandas as pd
 from PIL import Image
@@ -457,12 +461,23 @@ def get_lora_config(type_: str = "baseline",
     elif type_ == "Q_lora":
         Q_lora_config = LoraConfig(
             r=r,
-            lora_alpha=lora_alpha,
+            lora_alpha=2 * r,
             init_lora_weights="gaussian",
-            target_modules="all-linear",
-            lora_dropout=dropout
+            target_modules=["query", "value"],
         )
-        model = get_peft_model(base_model, Q_lora_config)
+        # Quantization config from QLoRA paper
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="torch.bfloat16",
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL, quantization_config=bnb_config, device_map={"": 0}
+        )
+        model = prepare_model_for_kbit_training(model)
+
+        model = get_peft_model(model, Q_lora_config)
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
         return model, optimizer, scheduler
@@ -490,10 +505,22 @@ def get_lora_config(type_: str = "baseline",
             r=r,
             lora_alpha=lora_alpha,
             init_lora_weights="gaussian",
-            target_modules="all-linear",
+            target_modules=["query", "value"],
             lora_dropout=dropout
         )
-        model = get_peft_model(base_model, Q_lora_config)
+        # Quantization config from QLoRA paper
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="torch.bfloat16",
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL, quantization_config=bnb_config, device_map={"": 0}
+        )
+        model = prepare_model_for_kbit_training(model)
+        
+        model = get_peft_model(model, Q_lora_config)
         optimizer = create_loraplus_optimizer(
             model=model,
             optimizer_cls=bnb.optim.Adam8bit,
