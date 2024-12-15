@@ -43,7 +43,8 @@ class LoRATrainer:
                  epochs: int, 
                  batch_size: int = 8, 
                  scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
-                 type_: str = "baseline"):
+                 type_: str = "baseline",
+                 do_profiling: bool = False) -> None:
         
         self.model = model
         self.optimizer = optimizer
@@ -52,16 +53,34 @@ class LoRATrainer:
         self.epochs = epochs
         self.batch_size = batch_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
+        if self.model is not None:
+            self.model.to(self.device)
         self.epoch_accuracies = []
         self.epoch_losses = []
         self.scheduler = scheduler
         self.type_ = type_
+        self.do_profiling = do_profiling
 
     def train(self) -> None:
         """
         Trains the model on the training dataset for a specified number of epochs.
         """
+        if self.do_profiling:
+            self.profiler = torch.profiler.profile(
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+            schedule=torch.profiler.schedule(
+                skip_first=1, wait=1, warmup=1, active=2, repeat=2
+            ),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler("hf-training-trainer"),
+            profile_memory=True,
+            with_stack=True,
+            record_shapes=True)
+            
+            self.profiler.__enter__()
+        
         train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
         self.model.train()
         for epoch in tqdm(range(self.epochs), desc=f"Training {self.epochs} epochs"):
@@ -82,9 +101,12 @@ class LoRATrainer:
                 preds = outputs.logits.argmax(dim=1)
                 correct_predictions += (preds == labels).sum().item()
                 total_samples += labels.size(0)
-
+                
             if self.scheduler:
                 self.scheduler.step()
+                
+            if self.do_profiling:
+                self.profiler.step()
 
             epoch_loss = running_loss / total_samples
             epoch_accuracy = correct_predictions / total_samples
@@ -93,9 +115,12 @@ class LoRATrainer:
 
             wandb.log({"epoch_loss": epoch_loss, "epoch_accuracy": epoch_accuracy, "epoch": epoch})
 
-            eval_results = self.evaluate(in_train=True)
+            eval_results = self.evaluate(in_train=True, epoch_num=epoch)
+        
+        if self.do_profiling:
+            self.profiler.__exit__(None, None, None)
 
-    def evaluate(self, in_train: bool = False) -> Dict[str, float]:
+    def evaluate(self, in_train: bool = False, epoch_num: Optional[int] = None) -> Dict[str, float]:
         """
         Evaluates the model on the validation dataset.
 
@@ -128,8 +153,13 @@ class LoRATrainer:
         eval_accuracy = correct_predictions / total_samples
         if in_train:
             self.model.train()
-        wandb.log({"eval_loss": eval_loss, "eval_accuracy": eval_accuracy})
-        return {"eval_loss": eval_loss, "eval_accuracy": eval_accuracy}
+        
+        if epoch_num is not None:
+            wandb.log({"eval_loss": eval_loss, "eval_accuracy": eval_accuracy, "epoch": epoch_num})
+            return {"eval_loss": eval_loss, "eval_accuracy": eval_accuracy, "epoch": epoch_num}
+        else:
+            wandb.log({"eval_loss": eval_loss, "eval_accuracy": eval_accuracy})
+            return {"eval_loss": eval_loss, "eval_accuracy": eval_accuracy}
     
     @staticmethod
     def load_model(path: str, BM: bool = False) -> None:
@@ -176,6 +206,22 @@ class LoRATrainer:
         self.model.id = path.split("/")[-1].split("_")[0]
         logger.info(f"Model saved to {path}")
         
+    def print_trainable_parameters(self):
+        """
+        Prints the number of trainable parameters in the model.
+        """
+        trainable_params = 0
+        all_params = 0
+        for _, param in self.model.named_parameters():
+            all_params += param.numel()
+            if param.requires_grad:
+                trainable_params += param.numel()
+        
+        print(
+            f"trainable params: {trainable_params} || all params: {all_params} || "
+            f"trainable (%): {100 * trainable_params / all_params:.2f}"
+    )
+        
     def load_trained_model(self, path: str) -> None:
         """
         Load a trained model from a specified path.
@@ -183,6 +229,7 @@ class LoRATrainer:
         Args:
             path (str): The path to load the model from.
         """
+        logger.info(f"Loading model from {path}")
         self.model = ViTForImageClassification.from_pretrained(path).to(self.device)
         self.model.id = path.split("/")[-1].split("_")[0]
         logger.info(f"Model loaded from {path}")
@@ -392,7 +439,7 @@ def get_lora_config(type_: str = "baseline",
         Tuple[ViTForImageClassification, Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler._LRScheduler]]: Configured model, optimizer, and scheduler.
     """
     base_model = trainer.load_model(MODEL)
-    logger.info(f"Loading {type_} model with parameters: r={r}, lora_alpha={lora_alpha}, learning_rate={learning_rate}, loraplus_lr_ratio={loraplus_lr_ratio}, step_size={step_size}, gamma={gamma}")
+    logger.info(f"Loading {type_} model with parameters: \nr={r}, lora_alpha={lora_alpha}, learning_rate={learning_rate}, loraplus_lr_ratio={loraplus_lr_ratio}, step_size={step_size}, gamma={gamma}, dropout={dropout}")
 
     if type_ == "lora":
         lora_config = LoraConfig(
@@ -517,7 +564,7 @@ def run_sweep(type_: str) -> None:
     def train_model_lora_wandb():
         wandb.init(reinit=True)
         config = wandb.config
-        model, optimizer = get_lora_config(config.type, config.r, config.lora_alpha, config.learning_rate, config.loraplus_lr_ratio)
+        model, optimizer, scheduler = get_lora_config(type_ = config.type, learning_rate=config.learning_rate, r=config.r, lora_alpha=config.lora_alpha, loraplus_lr_ratio=config.loraplus_lr_ratio, dropout=config.dropout)
         logger.info(f"Training model with configuration: {config}")
         if optimizer is None:
             optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
@@ -531,7 +578,8 @@ def run_sweep(type_: str) -> None:
             train_dataset=train_subset,
             val_dataset=val_subset,
             epochs=config.epochs,
-            batch_size=config.batch_size
+            batch_size=config.batch_size,
+            scheduler=scheduler,
         )
         
         trainer.train()
@@ -541,7 +589,7 @@ def run_sweep(type_: str) -> None:
     def train_model_lora_wandb_baseline():
         wandb.init(reinit=True)
         config = wandb.config
-        model, optimizer = get_lora_config("baseline", learning_rate=config.learning_rate)
+        model, optimizer, scheduler = get_lora_config("baseline", learning_rate=config.learning_rate)
         logger.info(f"Training model with configuration: {config}")
 
         train_subset = load_dataset(csv_file=TRAIN_CSV, root_dir=TRAIN_DIR)
@@ -553,7 +601,8 @@ def run_sweep(type_: str) -> None:
             train_dataset=train_subset,
             val_dataset=val_subset,
             epochs=config.epochs,
-            batch_size=config.batch_size
+            batch_size=config.batch_size,
+            scheduler=scheduler
         )
         
         trainer.train()
@@ -577,13 +626,13 @@ def run_sweep(type_: str) -> None:
         "method": "bayes",
         "metric": {"name": "eval_accuracy", "goal": "maximize"},
         "parameters": { # hyperparams: lr should be continous
-            "learning_rate": {"min": 1e-4, "max": 3e-3},
+            "learning_rate": {"min": 1e-5, "max": 1e-3},
             "batch_size": {"values": [16, 32, 64]},
-            "epochs": {"min": 20, "max": 30},
+            "epochs": {"min": 10, "max": 15},
             "type": {"values": [type_]},
             "r": {"values": [8, 16, 32]}, # Rank of the LORA matrix
             "lora_alpha": {"min": 1.0, "max": 6.0}, # Alpha parameter for LORA
-            "loraplus_lr_ratio": {"values": [4, 8, 16]}, # Ratio of the learning rate for LORA+ compared to LORA
+            "loraplus_lr_ratio": {"min": 10, "max": 30}, # Ratio of the learning rate for LORA+ compared to LORA
             "dropout": {"min": 0.0, "max": 0.3},
             "grad_clip": {"values": [True, False]},
             },
@@ -628,6 +677,12 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
                    config=lora_train_config,
                    mode="online")
             trainer = train_model_lora(epochs, type_, lora_train_config=lora_train_config)
+            if trainer.do_profiling:
+                print(trainer.profiler.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
+                print(trainer.profiler.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+                print(trainer.profiler.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
+                print(trainer.profiler.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
+                trainer.profiler.export_chrome_trace("hf-training-trainer-all-data.json")
             # save the model
             eval_results = trainer.evaluate()
             trainer.save_model(f"models/{type_}/{run_id}_{eval_results['eval_accuracy']*100:.3f}")
@@ -656,21 +711,48 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
         fold_results = []
         dataset = load_dataset(csv_file=TRAIN_CSV, root_dir=TRAIN_DIR)
         kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
+        max_accuracy = 0
         for fold, (train_indices, val_indices) in enumerate(kf.split(dataset)):
             logger.info(f"Training fold {fold + 1}...")
-            wandb.init(project="lora-cv", reinit=True, group=f"{run_id}_cv_{type_}_{lora_train_config['r']}_{int(lora_train_config['lora_alpha'])}_{lora_train_config['loraplus_lr_ratio']}", name=f"{run_id}_fold_{fold + 1}", config=lora_train_config)
+            wandb.init(project="lora-cv", 
+                       reinit=True, 
+                       group=f"{run_id}_cv_{type_}_{lora_train_config['r']}_{int(lora_train_config['lora_alpha'])}_{lora_train_config['loraplus_lr_ratio']}", 
+                       name=f"{run_id}_fold_{fold + 1}", 
+                       config=lora_train_config,
+                       mode="online")
             trainer = train_model_lora(epochs, type_, train_indices, val_indices, lora_train_config)
+            if trainer.do_profiling:
+                print(trainer.profiler.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
+                print(trainer.profiler.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+                print(trainer.profiler.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
+                print(trainer.profiler.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
+                trainer.profiler.export_chrome_trace(f"hf-training-trainer-fold{fold+1}.json")
             eval_results = trainer.evaluate()
             logger.success(f"Fold {fold + 1} results: {eval_results}")
             fold_results.append(eval_results)
+            if eval_results["eval_accuracy"] > max_accuracy:
+                max_accuracy = eval_results["eval_accuracy"]
+                # save the model
+                trainer.save_model(f"models/{type_}/{run_id}_{fold}_{eval_results['eval_accuracy']*100:.3f}")
+                # save model metadata
+                model_metadata = {
+                    "type": type_,
+                    "run_id": run_id,
+                    "fold": fold,
+                    "accuracy": eval_results["eval_accuracy"]
+                }
             # wandb.log(eval_results)
             wandb.finish()
-
+        
+        # Load the best model and evaluate on the test set
+        trainer.load_trained_model(f"/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/{model_metadata['type']}/{model_metadata['run_id']}_{model_metadata['fold']}_{model_metadata['accuracy']*100:.3f}")
+        _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
+        acc = trainer.eval_predictions(col_name)
         avg_accuracy = np.mean([result['eval_accuracy'] for result in fold_results])
         logger.info(f"Average cross-validated accuracy: {avg_accuracy}")
         return avg_accuracy
 
-def lora_loop(type_: str, epochs: int = None, do_sweep: bool = False, config: dict = None) -> float:
+def lora_loop(type_: str, epochs: int = None, do_sweep: bool = False, num_folds: int = 1, config: dict = None) -> float:
     if do_sweep:
         run_sweep(type_)
         config_path = f"data/best_config_{type_}.pth"
@@ -682,5 +764,5 @@ def lora_loop(type_: str, epochs: int = None, do_sweep: bool = False, config: di
             avg_accuracy = manage_cv(epochs=epochs if epochs is not None else 30, type_=type_)
         logger.info(f"Final model trained with optimal configuration: {config_path}. \n Achieved accuracy: {avg_accuracy}")
     else:
-        avg_accuracy = manage_cv(epochs if epochs is not None else 30, type_, lora_train_config=config, num_folds=1)
+        avg_accuracy = manage_cv(epochs if epochs is not None else 30, type_, lora_train_config=config, num_folds=num_folds)
         return avg_accuracy
