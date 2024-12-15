@@ -1,4 +1,4 @@
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_trainig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.optimizers import create_loraplus_optimizer
 from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification, BitsAndBytesConfig, AutoModelForCausalLM
 import bitsandbytes as bnb
@@ -49,7 +49,7 @@ class AccuracyResetCallback(TrainerCallback):
         trainer = kwargs["model"]
         trainer.total_correct = 0
         trainer.total_samples = 0
-        
+
 class EvaluateCallback(TrainerCallback):
     def __init__(self, trainer) -> None:
         super().__init__()
@@ -60,7 +60,7 @@ class EvaluateCallback(TrainerCallback):
             control_copy = deepcopy(control)
             self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
             return control_copy
-        
+
 class CustomTrainer(Trainer):
 
     def __init__(self, *args, **kwargs):
@@ -116,7 +116,7 @@ class CustomTrainer(Trainer):
 
         # return (loss, outputs) if return_outputs else loss
         return loss
-    
+
 class CustomCallback(TrainerCallback):
 
     def __init__(self, trainer) -> None:
@@ -154,7 +154,6 @@ class CustomCallback(TrainerCallback):
         return None
 
 
-
 def get_lora_config(type_: str, r: int = 16) -> LoraConfig:
     processor = ViTImageProcessor.from_pretrained(MODEL)
     # base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
@@ -186,7 +185,7 @@ def get_lora_config(type_: str, r: int = 16) -> LoraConfig:
             bnb_4bit_compute_dtype="torch.bfloat16"
             )
         model = AutoModelForCausalLM.from_pretrained(MODEL, quantization_config=bnb_config, device_map={"": 0})
-        model = prepare_model_for_kbit_trainig(model)
+        model = prepare_model_for_kbit_training(model)
         return get_peft_model(model, Q_lora_config), None
     
     elif type_ == "lora_plus":
