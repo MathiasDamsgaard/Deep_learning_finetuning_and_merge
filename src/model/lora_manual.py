@@ -132,7 +132,7 @@ class LoRATrainer:
         return {"eval_loss": eval_loss, "eval_accuracy": eval_accuracy}
     
     @staticmethod
-    def load_model(path: str) -> None:
+    def load_model(path: str, BM: bool = False) -> None:
         """
         Load a trained model from a specified path.
 
@@ -160,7 +160,7 @@ class LoRATrainer:
 
         # Freeze base layers
         for param in model.base_model.parameters():
-            param.requires_grad = False
+            param.requires_grad = BM
             
         return model
 
@@ -457,6 +457,7 @@ def get_lora_config(type_: str = "baseline",
         return model, optimizer, scheduler
 
     elif type_ == "baseline":
+        base_model = trainer.load_model(MODEL, BM=True)
         optimizer = torch.optim.Adam(base_model.parameters(), lr=learning_rate)
         scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
         return base_model, optimizer, scheduler

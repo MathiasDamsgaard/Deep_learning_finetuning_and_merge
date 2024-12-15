@@ -54,7 +54,7 @@ def load_dataset(csv_file: str = None, root_dir: str = None):
     return dataset
 
 
-def load_model(c: bool = False, path: str = None):
+def load_model(c: bool = False, path: str = None, BM: bool = False) -> ViTForImageClassification:
     """
     Load trained model if continiue training, else load the model from Huggingface.
     """
@@ -82,7 +82,7 @@ def load_model(c: bool = False, path: str = None):
 
     # Freeze base layers
     for param in model.base_model.parameters():
-        param.requires_grad = False
+        param.requires_grad = BM
     return model
 
 def train_model(model, epochs: int):

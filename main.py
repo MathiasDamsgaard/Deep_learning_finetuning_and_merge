@@ -68,7 +68,7 @@ def main(step: Union[str, None] = None,
         logger.info("Running baseline model.")
         SAVE_PATH = os.path.join(os.getcwd(), "models", "baseline_model")
         
-        model = load_model(c, SAVE_PATH)
+        model = load_model(c, SAVE_PATH, BM=True)
         if c:
             logger.info(f"Continuing training model: \n{model}")
         else:
