@@ -93,7 +93,6 @@ def main(step: Union[str, None] = None,
         trainer.model, _, _ = get_lora_config(type_, r = config["r"], lora_alpha = config["lora_alpha"], loraplus_lr_ratio = config["loraplus_lr_ratio"], dropout = config["dropout"])
         trainer.print_trainable_parameters()
         
-    if BM:
     if step == "BM":
         logger.info("Running baseline model.")
         SAVE_PATH = os.path.join(os.getcwd(), "models", "baseline_model")
@@ -160,7 +159,6 @@ if __name__ == "__main__":
 
     # Run main function
     main(step=args.step, 
-         BM=args.BM, 
          epochs=args.epochs, 
          c=args.c, 
          i_only=args.i_only, 
