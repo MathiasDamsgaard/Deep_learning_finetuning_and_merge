@@ -214,9 +214,18 @@ def get_lora_config(type_: str, r: int = 16) -> LoraConfig:
             r = r,
             lora_alpha = 2 * r,
             init_lora_weights="gaussian",
-            target_modules="all-linear"
+            target_modules=["query", "value"],
             )
-        return get_peft_model(base_model, Q_lora_config), optimizer
+        # Quantization config from QLoRA paper
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="torch.bfloat16"
+            )
+        model = AutoModelForCausalLM.from_pretrained(MODEL, quantization_config=bnb_config, device_map={"": 0})
+        model = prepare_model_for_kbit_training(model)
+        return get_peft_model(model, Q_lora_config), optimizer
 
     else:
         raise ValueError(f"Invalid type: {type_}")
