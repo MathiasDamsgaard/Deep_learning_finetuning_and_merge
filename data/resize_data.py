@@ -7,10 +7,10 @@ from tqdm import tqdm
 
 # Define the source and destination directories
 source_dir = os.getcwd() + '/data'
-data_dir = os.path.join(source_dir, 'seryouxblaster764/fgvc-aircraft/versions/2/fgvc-aircraft-2013b/fgvc-aircraft-2013b/data/images')
+data_dir = os.path.join(source_dir, 'fgvc-aircraft-2013b/fgvc-aircraft-2013b/data/images')
 destination_dir = os.path.join(source_dir, 'resized_images')
 
-csv_dir = os.path.join(source_dir, 'seryouxblaster764/fgvc-aircraft/versions/2')
+csv_dir = source_dir
 csv_files = ['train.csv', 'val.csv', 'test.csv']
 output_csv = os.path.join(source_dir, 'data.csv')
 
@@ -32,11 +32,17 @@ for filename in tqdm(os.listdir(data_dir)):
             # preserve the aspect ratio so padding is needed
             width, height = img.size
             if width > height:
-                new_height = int(new_size[0] * height / width)
-                padding = (0, (new_size[1] - new_height) // 2, 0, (new_size[1] - new_height) // 2)
+                # new_height = int(new_size[0] * height / width)
+                # padding = (0, (new_size[1] - new_height) // 2, 0, (new_size[1] - new_height) // 2)
+
+                new_height = width - height
+                padding = (0, new_height // 2, 0, new_height // 2)
             else:
-                new_width = int(new_size[1] * width / height)
-                padding = ((new_size[0] - new_width) // 2, 0, (new_size[0] - new_width) // 2, 0)
+                # new_width = int(new_size[1] * width / height)
+                # padding = ((new_size[0] - new_width) // 2, 0, (new_size[0] - new_width) // 2, 0)
+
+                new_width = height - width
+                padding = (new_width // 2, 0, new_width // 2, 0)
             
             img = ImageOps.expand(img, padding, fill='white')
 
