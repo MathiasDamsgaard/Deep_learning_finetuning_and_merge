@@ -106,7 +106,6 @@ if __name__ == "__main__":
         help="Step of the main function to execute.",
     )
     parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
-    parser.add_argument("--r", help="Rank to use", default=8, type=int)
     parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
     parser.add_argument("--i_only", help="Use this if you want to only infer with the model", action="store_true")
     parser.add_argument("--type", help="Type of model", default="lora", type=str)
