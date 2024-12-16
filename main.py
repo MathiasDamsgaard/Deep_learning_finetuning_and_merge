@@ -146,6 +146,8 @@ if __name__ == "__main__":
     parser.add_argument("--dropout", help="Dropout", default=0.1, type=float)
     args = parser.parse_args()
     
+    assert args.type in ["baseline", "lora", "Q_lora", "lora_plus", "Q_lora_plus"], "Invalid model type."
+    
     # Create a configuration dict from the arguments as  config = {"learning_rate": 1.5e-4, 
                 #   "batch_size": 8, 
                 #   "r": 32, 
