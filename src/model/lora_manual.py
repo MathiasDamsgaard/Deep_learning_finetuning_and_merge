@@ -461,7 +461,7 @@ def get_lora_config(type_: str = "baseline",
     elif type_ == "Q_lora":
         Q_lora_config = LoraConfig(
             r=r,
-            lora_alpha=2 * r,
+            lora_alpha=lora_alpha,
             init_lora_weights="gaussian",
             target_modules=["query", "value"],
         )
@@ -470,9 +470,9 @@ def get_lora_config(type_: str = "baseline",
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype="torch.bfloat16",
+            bnb_4bit_compute_dtype="bfloat16",
         )
-        model = AutoModelForCausalLM.from_pretrained(
+        model = ViTForImageClassification.from_pretrained(
             MODEL, quantization_config=bnb_config, device_map={"": 0}
         )
         model = prepare_model_for_kbit_training(model)
@@ -515,7 +515,7 @@ def get_lora_config(type_: str = "baseline",
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype="torch.bfloat16",
         )
-        model = AutoModelForCausalLM.from_pretrained(
+        model = ViTForImageClassification.from_pretrained(
             MODEL, quantization_config=bnb_config, device_map={"": 0}
         )
         model = prepare_model_for_kbit_training(model)
@@ -641,31 +641,46 @@ def run_sweep(type_: str) -> None:
         "method": "bayes",
         "metric": {"name": "eval_accuracy", "goal": "maximize"},
         "parameters": { # hyperparams: lr should be continous
-            "learning_rate": {"min": 1e-4, "max": 3e-3},
-            "batch_size": {"values": [16, 32, 64]},
-            "epochs": {"min": 20, "max": 30},
-            },
-        }
-        sweep_id = wandb.sweep(sweep_config, project="lora-sweep")
-        wandb.agent(sweep_id, function=train_model_lora_wandb_baseline, count=30)
-    else:
-        sweep_config = {
-        "method": "bayes",
-        "metric": {"name": "eval_accuracy", "goal": "maximize"},
-        "parameters": { # hyperparams: lr should be continous
             "learning_rate": {"min": 1e-5, "max": 1e-3},
-            "batch_size": {"values": [16, 32, 64]},
-            "epochs": {"min": 10, "max": 15},
-            "type": {"values": [type_]},
-            "r": {"values": [8, 16, 32]}, # Rank of the LORA matrix
-            "lora_alpha": {"min": 1.0, "max": 6.0}, # Alpha parameter for LORA
-            "loraplus_lr_ratio": {"min": 10, "max": 30}, # Ratio of the learning rate for LORA+ compared to LORA
-            "dropout": {"min": 0.0, "max": 0.3},
-            "grad_clip": {"values": [True, False]},
+            "batch_size": {"values": [16]},
+            "epochs": {"values": [15]},
             },
         }
         sweep_id = wandb.sweep(sweep_config, project="lora-sweep")
-        wandb.agent(sweep_id, function=train_model_lora_wandb, count=30)
+        wandb.agent(sweep_id, function=train_model_lora_wandb_baseline, count=50)
+    else:
+        if type_ == "lora_plus" or type_ == "Q_lora_plus":
+            sweep_config = {
+            "method": "bayes",
+            "metric": {"name": "eval_accuracy", "goal": "maximize"},
+            "parameters": { # hyperparams: lr should be continous
+                "learning_rate": {"min": 1e-6, "max": 1e-4},
+                "batch_size": {"values": [16]},
+                "epochs": {"values": [15]},
+                "type": {"values": [type_]},
+                "r": {"values": [8, 16, 32, 64, 128]}, # Rank of the LORA matrix
+                "lora_alpha": {"min": 2.0, "max": 16.0}, # Alpha parameter for LORA
+                "loraplus_lr_ratio": {"min": 20, "max": 40}, # Ratio of the learning rate for LORA+ compared to LORA
+                "dropout": {"values": [0.2]}
+                },
+            }
+        else:
+            sweep_config = {
+            "method": "bayes",
+            "metric": {"name": "eval_accuracy", "goal": "maximize"},
+            "parameters": { # hyperparams: lr should be continous
+                "learning_rate": {"min": 1e-4, "max": 1e-2},
+                "batch_size": {"values": [16]},
+                "epochs": {"values": [15]},
+                "type": {"values": [type_]},
+                "r": {"values": [8, 16, 32, 64]}, # Rank of the LORA matrix
+                "lora_alpha": {"min": 2.0, "max": 16.0}, # Alpha parameter for LORA
+                "loraplus_lr_ratio": {"values": [0]},
+                "dropout": {"values": [0.2]}
+                },
+            }
+        sweep_id = wandb.sweep(sweep_config, project="lora-sweep")
+        wandb.agent(sweep_id, function=train_model_lora_wandb, count=50)
     
     # Get the best configuration from wandb
     api = wandb.Api()
