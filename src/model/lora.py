@@ -1,6 +1,6 @@
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.optimizers import create_loraplus_optimizer
-from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification
+from transformers import ViTImageProcessor, ViTModel, ViTForImageClassification, BitsAndBytesConfig, AutoModelForCausalLM
 import bitsandbytes as bnb
 import evaluate
 import random
@@ -49,7 +49,7 @@ class AccuracyResetCallback(TrainerCallback):
         trainer = kwargs["model"]
         trainer.total_correct = 0
         trainer.total_samples = 0
-        
+
 class EvaluateCallback(TrainerCallback):
     def __init__(self, trainer) -> None:
         super().__init__()
@@ -60,7 +60,7 @@ class EvaluateCallback(TrainerCallback):
             control_copy = deepcopy(control)
             self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
             return control_copy
-        
+
 class CustomTrainer(Trainer):
 
     def __init__(self, *args, **kwargs):
@@ -116,7 +116,7 @@ class CustomTrainer(Trainer):
 
         # return (loss, outputs) if return_outputs else loss
         return loss
-    
+
 class CustomCallback(TrainerCallback):
 
     def __init__(self, trainer) -> None:
@@ -153,7 +153,8 @@ class CustomCallback(TrainerCallback):
         self._trainer.epoch_loss = []
         return None
 
-def get_lora_config(type_: str) -> LoraConfig:
+
+def get_lora_config(type_: str, r: int = 16) -> LoraConfig:
     processor = ViTImageProcessor.from_pretrained(MODEL)
     # base_model = ViTForImageClassification.from_pretrained(MODEL).to(DEVICE)
     
@@ -173,9 +174,19 @@ def get_lora_config(type_: str) -> LoraConfig:
             r = r,
             lora_alpha = 2 * r,
             init_lora_weights="gaussian",
-            target_modules="all-linear"
+            target_modules=["query", "value"],
+            task_type="CASUAL_LM"
             )
-        return get_peft_model(base_model, Q_lora_config), None
+        # Quantization config from QLoRA paper
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="torch.bfloat16"
+            )
+        model = AutoModelForCausalLM.from_pretrained(MODEL, quantization_config=bnb_config, device_map={"": 0})
+        model = prepare_model_for_kbit_training(model)
+        return get_peft_model(model, Q_lora_config), None
     
     elif type_ == "lora_plus":
         optimizer = create_loraplus_optimizer(
@@ -203,9 +214,18 @@ def get_lora_config(type_: str) -> LoraConfig:
             r = r,
             lora_alpha = 2 * r,
             init_lora_weights="gaussian",
-            target_modules="all-linear"
+            target_modules=["query", "value"],
             )
-        return get_peft_model(base_model, Q_lora_config), optimizer
+        # Quantization config from QLoRA paper
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="torch.bfloat16"
+            )
+        model = AutoModelForCausalLM.from_pretrained(MODEL, quantization_config=bnb_config, device_map={"": 0})
+        model = prepare_model_for_kbit_training(model)
+        return get_peft_model(model, Q_lora_config), optimizer
 
     else:
         raise ValueError(f"Invalid type: {type_}")
@@ -373,5 +393,5 @@ def lora_loop(type_: str, epochs: int, do_sweep: bool = False) -> float:
     """
     Train and test the model and return the accuracy.
     """
-    model, profiler_data = train_model_lora(epochs, type_, r)
+    model, profiler_data = train_model_lora(epochs, type_, r=16)
     return test_model_lora(model), profiler_data

@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 DATA_DIR = os.path.join(os.getcwd(), "data")
 DST_DIR = os.path.join(DATA_DIR, "resized_images")
-CSV_DIR = os.path.join(os.getcwd(), 'data', 'seryouxblaster764/fgvc-aircraft/versions/2')
+CSV_DIR = os.path.join(os.getcwd(), "data")
 
 # Move resized images into train, val and test folders based on the images contained in the respective csv files
 train_csv = pd.read_csv(os.path.join(CSV_DIR, 'train.csv'))

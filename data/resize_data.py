@@ -7,10 +7,10 @@ from tqdm import tqdm
 
 # Define the source and destination directories
 source_dir = os.getcwd() + '/data'
-data_dir = os.path.join(source_dir, 'seryouxblaster764/fgvc-aircraft/versions/2/fgvc-aircraft-2013b/fgvc-aircraft-2013b/data/images')
+data_dir = os.path.join(source_dir, 'fgvc-aircraft-2013b/fgvc-aircraft-2013b/data/images')
 destination_dir = os.path.join(source_dir, 'resized_images')
 
-csv_dir = os.path.join(source_dir, 'seryouxblaster764/fgvc-aircraft/versions/2')
+csv_dir = source_dir
 csv_files = ['train.csv', 'val.csv', 'test.csv']
 output_csv = os.path.join(source_dir, 'data.csv')
 
