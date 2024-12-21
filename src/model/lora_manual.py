@@ -6,10 +6,12 @@ import bitsandbytes as bnb
 import numpy as np
 import torch
 import wandb
+import tabulate
 from loguru import logger
+from ptflops import get_model_complexity_info
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.optimizers import create_loraplus_optimizer
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 from torch import nn
 from torch.utils.data import Subset, DataLoader
 from tqdm import tqdm
@@ -64,6 +66,7 @@ class LoRATrainer:
         self.scheduler = scheduler
         self.type_ = type_
         self.do_profiling = do_profiling
+        self.save_model_available = False
 
     def train(self) -> None:
         """
@@ -191,6 +194,8 @@ class LoRATrainer:
         model.classifier = nn.Linear(model.config.hidden_size, len(id2label)).to(DEVICE)
         model.config.id2label = id2label
         model.config.label2id = label2id
+        
+        # logger.debug(model.config.id2label)
 
         # Freeze base layers
         for param in model.base_model.parameters():
@@ -226,6 +231,19 @@ class LoRATrainer:
             f"trainable (%): {100 * trainable_params / all_params:.2f}"
     )
         
+    def get_trainable_parameters(self):
+        """
+        Returns the number of trainable parameters in the model.
+        """
+        trainable_params = 0
+        all_params = 0
+        for _, param in self.model.named_parameters():
+            all_params += param.numel()
+            if param.requires_grad:
+                trainable_params += param.numel()
+        
+        return trainable_params, all_params
+        
     def load_trained_model(self, path: str) -> None:
         """
         Load a trained model from a specified path.
@@ -260,9 +278,15 @@ class LoRATrainer:
                 outputs = self.model(pixel_values)
                 predicted_class_idx = outputs.logits.argmax(dim=1).cpu().tolist()
                 predicted_class = [self.model.config.id2label[idx] for idx in predicted_class_idx]
+                # logger.debug(f"Predicted class: {predicted_class} from indices: {predicted_class_idx}")
                 correct_predictions += sum([1 for idx in range(len(predicted_class)) if predicted_class[idx] == labels[idx]])
                 preds.extend(predicted_class)
-
+        try:
+            logger.info(f"Inferring from model id: {self.model.id}")
+        except AttributeError:
+            self.model.id = random.randint(0, 1000)
+            logger.info(f"Inferring from model with id {self.model.id}")
+            
         col_name = f'{self.type_}_{self.model.id}'
         idx = 1
         while col_name in test_df.columns:
@@ -295,7 +319,7 @@ class LoRATrainer:
         logger.info(f"Prediction accuracy for infernce column {col_name}: {accuracy:.4f}")
         return accuracy
     
-    def analyze_misclassifications(self, col_name: str) -> dict:
+    def analyze_misclassifications(self, col_name: str, verbose: bool = True) -> dict:
         """
         Analyze misclassifications from the CSV file and count misclassifications by true labels.
 
@@ -317,10 +341,15 @@ class LoRATrainer:
 
         # Sort misclassifications by count for better visualization
         sorted_summary = dict(sorted(misclassification_summary.items(), key=lambda x: x[1], reverse=True))
+        
+        # Print top k misclassifications as a tabulate table
+        if verbose:
+            logger.info("Misclassification counts by true label:")
+            logger.info(tabulate.tabulate(sorted_summary.items(), headers=["True Label", "Misclassification Count"], tablefmt="pretty"))
 
-        return sorted_summary
+        return sorted_summary, misclassification_summary
 
-    def visualize_misclassifications(self, col_name: str, image_root_dir: str, num_examples: int = 5, saliency: bool = False, images_or_hist: str = "images") -> None:
+    def visualize_misclassifications(self, col_name: str, image_root_dir: str = TEST_DIR, num_examples: int = 5, saliency: bool = False, images_or_hist: str = "images") -> None:
         """
         Visualize misclassified images for each label.
 
@@ -334,50 +363,172 @@ class LoRATrainer:
         assert images_or_hist in ["images", "histograms"], "Invalid value for images_or_hist. Must be 'images' or 'histograms'."
         
         if images_or_hist == "histograms":
-            misclassified_dict = self.analyze_misclassifications(col_name)
-            plt.bar(misclassified_dict.keys(), misclassified_dict.values())
+            sorted_summary, misclassification_summary = self.analyze_misclassifications(col_name, verbose = False)
+            plt.bar(misclassification_summary.keys(), misclassification_summary.values())
             plt.xlabel("True Label")
             plt.ylabel("Misclassification Count")
-            plt.title("Misclassification Counts by True Label")
+            if self.type_ == "baseline":
+                plt.title("Baseline Misclassification Counts by True Label")
+            elif self.type_ == "lora":
+                plt.title("LoRA Misclassification Counts by True Label")
+            elif self.type_ == "lora_plus":
+                plt.title("LoRA+ Misclassification Counts by True Label")
+            elif self.type_ == "Q_lora":
+                plt.title("Quantized LoRA Misclassification Counts by True Label")
+            elif self.type_ == "Q_lora_plus":
+                plt.title("Quantized LoRA+ Misclassification Counts by True Label")
+            else:
+                plt.title("Misclassification Counts by True Label")
             plt.savefig(f"models/{self.type_}/misclassification_histogram.png")
         
         elif images_or_hist == "images":
-        
+            # 1. Get misclassification summaries
+            sorted_summary, misclassification_summary = self.analyze_misclassifications(col_name, verbose=False)
+
+            # Load the test dataframe
             test_df = pd.read_csv(TEST_CSV)
 
-            # Filter rows where predictions are incorrect
-            misclassified_df = test_df[test_df['Labels'] != test_df[col_name]]
+            # 2. Compute per-class correct counts
+            class_correct_counts = defaultdict(int)
+            # We'll also get all classes that appear in the dataset
+            all_classes = set(test_df['Labels'].unique())
 
-            for label in misclassified_df['Labels'].unique():
-                label_df = misclassified_df[misclassified_df['Labels'] == label]
+            for _, row in test_df.iterrows():
+                label = row['Labels']
+                pred = row[col_name]
+                if label == pred:
+                    class_correct_counts[label] += 1
 
-                if len(label_df) == 0:
-                    continue
+            # 3. Find the most misclassified class with at least num_examples correct classifications.
+            # sorted_summary is already sorted by misclassification count descending.
+            # It's a dict like: {class_label: mis_count, ...} ordered by mis_count descending.
+            most_misclassified_class = None
+            for cls, mis_count in sorted_summary.items():
+                if class_correct_counts[cls] >= num_examples:
+                    most_misclassified_class = cls
+                    break
 
-                logger.info(f"\nShowing {num_examples} misclassified examples for label '{label}':")
+            # 4. Find the least misclassified class with at least num_examples incorrect classifications.
+            # We'll sort by misclassification ascending for this.
+            classes_by_least_mis = sorted(misclassification_summary.items(), key=lambda x: x[1])
+            least_misclassified_class = None
+            for cls, mis_count in classes_by_least_mis:
+                if mis_count >= num_examples:
+                    least_misclassified_class = cls
+                    break
 
-                # Visualize up to `num_examples` misclassified images for the given label
-                for i in range(min(num_examples, len(label_df))):
-                    img_name = label_df.iloc[i]['filename']
-                    img_path = os.path.join(image_root_dir, img_name)
+            if most_misclassified_class is None or least_misclassified_class is None:
+                logger.warning("Could not find suitable classes based on the given criteria.")
+                return
 
-                    # Load and display the image
-                    try:
-                        image = Image.open(img_path)
-                        plt.imshow(image)
-                        plt.title(f"True Label: {label}, Predicted: {label_df.iloc[i][col_name]}")
-                        plt.axis('off')
-                        # If saliency is enabled, compute and display saliency map
-                        if saliency:
-                            saliency_map = self.compute_saliency_map(image, label_df.iloc[i][col_name])
-                            plt.figure()
-                            plt.imshow(saliency_map, cmap='hot')
-                            plt.title(f"Saliency Map for True Label: {label}, Predicted: {label_df.iloc[i][col_name]}")
-                            plt.axis('off')
+            logger.info(f"Most misclassified class with >=5 correct: {most_misclassified_class}")
+            logger.info(f"Least misclassified class with >=5 incorrect: {least_misclassified_class}")
 
-                        plt.savefig(f"models/{self.type_}/misclassified_{label}_{i}.png")
-                    except FileNotFoundError:
-                        logger.warning(f"Image {img_path} not found.")
+            # 5. Get 5 correct and 5 misclassified examples for each identified class
+            def get_examples_for_class(cls: int, correct: bool, limit: int) -> pd.DataFrame:
+                """Get examples for a given class.
+                
+                Args:
+                    cls (int): Class label.
+                    correct (bool): Whether to get correct or incorrect examples.
+                    limit (int): Number of examples to get.
+                    
+                Returns:
+                    pd.DataFrame: DataFrame containing examples for the given class.
+                """
+                if correct:
+                    subset_df = test_df[(test_df['Labels'] == cls) & (test_df[col_name] == cls)]
+                else:
+                    subset_df = test_df[(test_df['Labels'] == cls) & (test_df[col_name] != cls)]
+                return subset_df.head(limit)
+
+            mm_correct_examples = get_examples_for_class(most_misclassified_class, correct=True, limit=num_examples)
+            mm_incorrect_examples = get_examples_for_class(most_misclassified_class, correct=False, limit=num_examples)
+
+            lm_correct_examples = get_examples_for_class(least_misclassified_class, correct=True, limit=num_examples)
+            lm_incorrect_examples = get_examples_for_class(least_misclassified_class, correct=False, limit=num_examples)
+
+            # 6. Plot the images and saliency maps
+            def plot_class_examples(cls_name: str, correct_df: pd.DataFrame, incorrect_df: pd.DataFrame, title_prefix: str):
+                """Plot examples for a given class.
+
+                Args:
+                    cls_name (str): Class name.
+                    correct_df (pd.DataFrame): DataFrame containing correct examples.
+                    incorrect_df (pd.DataFrame): DataFrame containing incorrect examples.
+                    title_prefix (str): Prefix for the plot title.
+                """
+
+                fig, axes = plt.subplots(4, num_examples, figsize=(num_examples * 3, 12))
+                fig.suptitle(f"{title_prefix} Class: {cls_name}", fontsize=16)
+                
+                # Ensure axes is a 2D array even if num_examples = 1
+                if num_examples == 1:
+                    # axes would be a 1D array of shape (4,)
+                    # Convert it to a 2D array (4, 1) for consistency
+                    axes = axes[:, np.newaxis]
+
+                # Plot correct examples
+                for i, (_, row) in enumerate(correct_df.iterrows()):
+                    img_path = os.path.join(image_root_dir, row['filename'])
+                    img = Image.open(img_path).convert("RGB")
+                    pred = row[col_name]
+                    if saliency:
+                        sal_map = self.compute_saliency_map(img, predicted_label=pred)
+                    else:
+                        sal_map = None
+                    
+                    # Image on the top row (row 0)
+                    axes[0, i].imshow(img)
+                    axes[0, i].axis('off')
+                    axes[0, i].set_title(f"Correct (Label: {row['Labels']}, Pred: {pred})", fontsize=10)
+
+                    # Saliency map below (row 1)
+                    if sal_map is not None:
+                        axes[1, i].imshow(sal_map, cmap='hot')
+                    axes[1, i].axis('off')
+
+                # Plot incorrect examples
+                for i, (_, row) in enumerate(incorrect_df.iterrows()):
+                    img_path = os.path.join(image_root_dir, row['filename'])
+                    img = Image.open(img_path).convert("RGB")
+                    pred = row[col_name]
+                    if saliency:
+                        sal_map = self.compute_saliency_map(img, predicted_label=pred)
+                    else:
+                        sal_map = None
+                    
+                    # Images of incorrect examples go on row 2
+                    axes[2, i].imshow(img)
+                    axes[2, i].axis('off')
+                    axes[2, i].set_title(f"Incorrect (Label: {row['Labels']}, Pred: {pred})", fontsize=10)
+
+                    # Saliency maps for incorrect on row 3
+                    if sal_map is not None:
+                        axes[3, i].imshow(sal_map, cmap='hot')
+                    axes[3, i].axis('off')
+
+                plt.tight_layout(rect=[0, 0, 1, 0.95])
+                fig.savefig(f"models/{self.type_}/{title_prefix}_{cls_name}_misclassifications.png")
+                plt.close(fig)
+
+
+            # Plot for the most misclassified class (with >=num_examples correct)
+            plot_class_examples(
+                most_misclassified_class,
+                mm_correct_examples,
+                mm_incorrect_examples,
+                title_prefix="Most_Misclassified"
+            )
+
+            # Plot for the least misclassified class (with >=num_examples incorrect)
+            plot_class_examples(
+                least_misclassified_class,
+                lm_correct_examples,
+                lm_incorrect_examples,
+                title_prefix="Least_Misclassified"
+            )            
+
         else:
             raise ValueError("Invalid value for images_or_hist. Must be 'images' or 'histograms'.")
                     
@@ -475,6 +626,26 @@ def get_lora_config(type_: str = "baseline",
         model = ViTForImageClassification.from_pretrained(
             MODEL, quantization_config=bnb_config, device_map={"": 0}
         )
+        # Get the dataset to extract unique labels
+        train_df = pd.read_csv(TRAIN_CSV)
+        unique_labels = train_df['Labels'].unique()
+
+        # Create mappings
+        id2label, label2id = {}, {}
+        for idx, label in enumerate(unique_labels):
+            id2label[int(idx)] = str(label)
+            label2id[str(label)] = int(idx)
+
+        # Update model classifier layer and mapping functions
+        model.config.num_labels = len(id2label)
+        model.num_labels = len(id2label)
+        model.classifier = nn.Linear(model.config.hidden_size, len(id2label)).to(DEVICE)
+        model.config.id2label = id2label
+        model.config.label2id = label2id
+
+        # Freeze base layers
+        for param in model.base_model.parameters():
+            param.requires_grad = False
         model = prepare_model_for_kbit_training(model)
 
         model = get_peft_model(model, Q_lora_config)
@@ -518,6 +689,26 @@ def get_lora_config(type_: str = "baseline",
         model = ViTForImageClassification.from_pretrained(
             MODEL, quantization_config=bnb_config, device_map={"": 0}
         )
+        # Get the dataset to extract unique labels
+        train_df = pd.read_csv(TRAIN_CSV)
+        unique_labels = train_df['Labels'].unique()
+
+        # Create mappings
+        id2label, label2id = {}, {}
+        for idx, label in enumerate(unique_labels):
+            id2label[int(idx)] = str(label)
+            label2id[str(label)] = int(idx)
+
+        # Update model classifier layer and mapping functions
+        model.config.num_labels = len(id2label)
+        model.num_labels = len(id2label)
+        model.classifier = nn.Linear(model.config.hidden_size, len(id2label)).to(DEVICE)
+        model.config.id2label = id2label
+        model.config.label2id = label2id
+
+        # Freeze base layers
+        for param in model.base_model.parameters():
+            param.requires_grad = False
         model = prepare_model_for_kbit_training(model)
         
         model = get_peft_model(model, Q_lora_config)
@@ -584,6 +775,7 @@ def train_model_lora(epochs: int, type_: str, train_indices: Optional[np.ndarray
 
     logger.info("Training model...")
     trainer.train()
+    # logger.debug(trainer.model.config.id2label)
     logger.success("Training complete")
     return trainer
 
@@ -717,6 +909,7 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
                    group=f"{run_id}_cv_{type_}_{lora_train_config['r']}_{int(lora_train_config['lora_alpha'])}_{lora_train_config['loraplus_lr_ratio']}", 
                    name=f"run_{run_id}", 
                    config=lora_train_config,
+                #    mode="disabled")
                    mode="online")
             trainer = train_model_lora(epochs, type_, lora_train_config=lora_train_config)
             if trainer.do_profiling:
@@ -727,7 +920,12 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
                 trainer.profiler.export_chrome_trace("hf-training-trainer-all-data.json")
             # save the model
             eval_results = trainer.evaluate()
-            trainer.save_model(f"models/{type_}/{run_id}_{eval_results['eval_accuracy']*100:.3f}")
+            try:
+                trainer.save_model(f"models/{type_}/{run_id}_1_{eval_results['eval_accuracy']*100:.3f}")
+                trainer.save_model_available = True
+            except AttributeError: # Some deep pickle error happens with the Quantized LoRA models
+                trainer.save_model_available = False
+                pass
         else:
             wandb.init(mode="disabled")
             trainer = LoRATrainer(ViTForImageClassification.from_pretrained("google/vit-base-patch16-224"), 
@@ -737,17 +935,18 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
                                   epochs=30, 
                                   batch_size=8,
                                   type_=type_)
-            trainer.load_trained_model("/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/lora/44971_58.386")
+            if trainer.save_model_available:
+                trainer.load_trained_model("/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/lora/44971_58.386")
             # trainer.analyze_misclassifications(f"{type_}_44971")
             # trainer.visualize_misclassifications(f"{type_}_44971", image_root_dir=TEST_DIR, saliency=True)
         res = trainer.evaluate()
         logger.info(res["eval_accuracy"])
-        _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
-        acc = trainer.eval_predictions(col_name)
-        logger.success(f"Model trained on entire training set. Inference results: {acc}")
+        # _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
+        # acc = trainer.eval_predictions(col_name)
+        # logger.success(f"Model trained on entire training set. Inference results: {acc}")
         wandb.finish()
         # return eval_results["eval_accuracy"]
-        return acc
+        return acc, trainer
 
     else:
         fold_results = []
@@ -761,8 +960,10 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
                        group=f"{run_id}_cv_{type_}_{lora_train_config['r']}_{int(lora_train_config['lora_alpha'])}_{lora_train_config['loraplus_lr_ratio']}", 
                        name=f"{run_id}_fold_{fold + 1}", 
                        config=lora_train_config,
+                    #    mode="disabled")
                        mode="online")
             trainer = train_model_lora(epochs, type_, train_indices, val_indices, lora_train_config)
+            # logger.debug(trainer.model.config.id2label)
             if trainer.do_profiling:
                 print(trainer.profiler.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
                 print(trainer.profiler.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
@@ -775,7 +976,12 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
             if eval_results["eval_accuracy"] > max_accuracy:
                 max_accuracy = eval_results["eval_accuracy"]
                 # save the model
-                trainer.save_model(f"models/{type_}/{run_id}_{fold}_{eval_results['eval_accuracy']*100:.3f}")
+                try:
+                    trainer.save_model(f"models/{type_}/{run_id}_{fold}_{eval_results['eval_accuracy']*100:.3f}")
+                    trainer.save_model_available = True
+                except AttributeError: # Some deep pickle error happens with the Quantized LoRA models
+                    trainer.save_model_available = False
+                    pass
                 # save model metadata
                 model_metadata = {
                     "type": type_,
@@ -784,15 +990,23 @@ def manage_cv(epochs: int, type_: str, lora_train_config: dict = None, num_folds
                     "accuracy": eval_results["eval_accuracy"]
                 }
             # wandb.log(eval_results)
+            trainable_params, all_params = trainer.get_trainable_parameters()
+            macs, params = get_model_complexity_info(trainer.model, (3, 224, 224), as_strings=True, backend='pytorch',
+                                            print_per_layer_stat=False, verbose=False)
+            _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
+            acc = trainer.eval_predictions(col_name)
+            wandb.log({"trainable_params": trainable_params, "all_params": all_params, "macs": macs, "params": params, "test_accuracy": acc})
             wandb.finish()
         
         # Load the best model and evaluate on the test set
-        trainer.load_trained_model(f"/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/{model_metadata['type']}/{model_metadata['run_id']}_{model_metadata['fold']}_{model_metadata['accuracy']*100:.3f}")
-        _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
-        acc = trainer.eval_predictions(col_name)
+        # if trainer.save_model_available:
+        #     trainer.load_trained_model(f"/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/{model_metadata['type']}/{model_metadata['run_id']}_{model_metadata['fold']}_{model_metadata['accuracy']*100:.3f}")
+        # _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
+        # acc = trainer.eval_predictions(col_name)
         avg_accuracy = np.mean([result['eval_accuracy'] for result in fold_results])
-        logger.info(f"Average cross-validated accuracy: {avg_accuracy}")
-        return avg_accuracy
+        # logger.info(f"Average cross-validated accuracy: {avg_accuracy}")
+        # logger.success(f"Final Test Accuracy: {acc}")
+        return avg_accuracy, trainer
 
 def lora_loop(type_: str, epochs: int = None, do_sweep: bool = False, num_folds: int = 1, config: dict = None) -> float:
     if do_sweep:
@@ -801,10 +1015,10 @@ def lora_loop(type_: str, epochs: int = None, do_sweep: bool = False, num_folds:
         if os.path.exists(config_path):
             config = torch.load(config_path)
             logger.info(f"Loaded best configuration: {config}")
-            avg_accuracy = manage_cv(epochs, type_, lora_train_config=config)
+            avg_accuracy, trainer = manage_cv(epochs, type_, lora_train_config=config)
         else: # Just use the default config if the sweep fails
-            avg_accuracy = manage_cv(epochs=epochs if epochs is not None else 30, type_=type_)
+            avg_accuracy, trainer = manage_cv(epochs=epochs if epochs is not None else 30, type_=type_)
         logger.info(f"Final model trained with optimal configuration: {config_path}. \n Achieved accuracy: {avg_accuracy}")
     else:
-        avg_accuracy = manage_cv(epochs if epochs is not None else 30, type_, lora_train_config=config, num_folds=num_folds)
-        return avg_accuracy
+        avg_accuracy, trainer = manage_cv(epochs if epochs is not None else 30, type_, lora_train_config=config, num_folds=num_folds)
+        return avg_accuracy, trainer

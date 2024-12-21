@@ -11,4 +11,4 @@
 # Initialize Python environment
 source .venv/bin/activate
 
-python3 main.py --step train --epochs 15 --num_folds 5 --type Q_lora --batch_size 16 --learning_rate 0.002574838678975716 --lora_alpha 5.163468946270533 --dropout 0.2 --r 32
+python3 main.py --num_folds 1 --step train --type Q_lora --learning_rate 0.00402017718214621 --lora_alpha 3.250647057823948 --r 32

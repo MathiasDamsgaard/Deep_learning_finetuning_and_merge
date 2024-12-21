@@ -19,6 +19,8 @@ from transformers import ViTForImageClassification
 # Logging
 from loguru import logger
 import wandb
+# from thop import profile, clever_format
+from ptflops import get_model_complexity_info
 
 # Custom modules
 from src.model.baseline_model import train_model, save_model, load_model, model_infer, eval_predictions, load_dataset
@@ -48,6 +50,7 @@ def main(step: Union[str, None] = None,
         i_only (bool): Use this if you want to only infer with the model.
         type_ (str): Type of model.
         config (dict): Configuration dictionary for the model.
+        checkpoint (str): Path to checkpoint.
         
     Returns:
         None
@@ -55,7 +58,21 @@ def main(step: Union[str, None] = None,
         
     if step == "train":
         logger.info(f"Running train step for model type {type_}.")
-        score = lora_loop(type_, epochs, num_folds=num_folds, config=config)
+        score, trainer = lora_loop(type_, epochs, num_folds=num_folds, config=config)
+        trainable_params, all_params = trainer.get_trainable_parameters()
+        macs, params = get_model_complexity_info(trainer.model, (3, 224, 224), as_strings=True, backend='pytorch',
+                                           print_per_layer_stat=True, verbose=True)
+        _, col_name = trainer.model_infer(load_dataset(TEST_CSV, TEST_DIR))
+        acc = trainer.eval_predictions(col_name)
+        logger.success(f"Model trained on entire training set. Inference results: {acc:.2f}")
+        logger.info(f"Trainable parameters: {trainable_params}, All parameters: {all_params}, MACs: {macs}, Parameters (ptflops): {params}")
+        trainer.visualize_misclassifications(col_name=col_name,
+                                             images_or_hist="histograms")
+        trainer.visualize_misclassifications(col_name=col_name,
+                                             image_root_dir=TEST_DIR,
+                                             num_examples=5,
+                                             saliency=True,
+                                             images_or_hist="images")
         
     elif step == "get_lora_config":
         logger.info("Running get_lora_config step.")
@@ -77,10 +94,20 @@ def main(step: Union[str, None] = None,
                             type_=type_)
         logger.info("Running plot step.")
         trainer.model = trainer.load_model(path="google/vit-base-patch16-224")
-        logger.debug(trainer.model)
-        trainer.load_trained_model("/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/Q_lora/96581_1_57.271")
-        sorted_summary = trainer.analyze_misclassifications()
-        print(sorted_summary)
+        # logger.debug(trainer.model)
+        if checkpoint is not None:
+            trainer.load_trained_model(checkpoint)
+            col_name = checkpoint.split("/")[-2] + "_" + checkpoint.split("/")[-1].split("_")[0]
+        else:
+            trainer.load_trained_model("/dtu/blackhole/15/155381/Deep_learning_finetuning_and_merge/models/lora/19109_53.045")
+            col_name = "lora_19109"
+        sorted_summary, _ = trainer.analyze_misclassifications(col_name=col_name, verbose=False)
+        trainer.visualize_misclassifications(col_name=col_name,
+                                             image_root_dir=TEST_DIR,
+                                             num_examples=5,
+                                             saliency=True,
+                                             images_or_hist="images")
+        # print(sorted_summary)
         
     elif step == "print_params":
         trainer = LoRATrainer(None,
@@ -92,6 +119,15 @@ def main(step: Union[str, None] = None,
                             type_=type_)
         trainer.model, _, _ = get_lora_config(type_, r = config["r"], lora_alpha = config["lora_alpha"], loraplus_lr_ratio = config["loraplus_lr_ratio"], dropout = config["dropout"])
         trainer.print_trainable_parameters()
+        macs, params = get_model_complexity_info(trainer.model, (3, 224, 224), as_strings=True, backend='pytorch',
+                                           print_per_layer_stat=True, verbose=True)
+        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+        # print(trainer.model.state_dict().keys())
+        # rand_input = torch.randn(1, 3, 224, 224).to(trainer.device)
+        # macs, params = profile(trainer.model, inputs=(rand_input, ), verbose=False)
+        # macs, params = clever_format([macs, params], "%.3f")
+        # print(f"Parameters for model type: {type_}MACs: {macs}, Parameters: {params}")
         
     if step == "BM":
         logger.info("Running baseline model.")
@@ -133,17 +169,18 @@ if __name__ == "__main__":
         default="lora",
         help="Step of the main function to execute.",
     )
-    parser.add_argument("--epochs", help="Number of epochs", default=1, type=int)
-    parser.add_argument("--num_folds", help="Number of folds for cross validation", default=1, type=int)
+    parser.add_argument("--epochs", help="Number of epochs", default=15, type=int)
+    parser.add_argument("--num_folds", help="Number of folds for cross validation", default=5, type=int)
     parser.add_argument("--c", help="Use this if you want to continue training", action="store_true")
     parser.add_argument("--i_only", help="Use this if you want to only infer with the model", action="store_true")
     parser.add_argument("--type", help="Type of model", default="lora", type=str)
     parser.add_argument("--learning_rate", help="Learning rate", default=0.0015, type=float)
-    parser.add_argument("--batch_size", help="Batch size", default=8, type=int)
+    parser.add_argument("--batch_size", help="Batch size", default=16, type=int)
     parser.add_argument("--r", help="Rank", default=32, type=int)
     parser.add_argument("--lora_alpha", help="lora_alpha", default=4.0, type=float)
     parser.add_argument("--loraplus_lr_ratio", help="loraplus_lr_ratio", default=32, type=int)
-    parser.add_argument("--dropout", help="Dropout", default=0.1, type=float)
+    parser.add_argument("--dropout", help="Dropout", default=0.2, type=float)
+    parser.add_argument("--checkpoint", help="Path to checkpoint", default=None, type=str)
     args = parser.parse_args()
     
     assert args.type in ["baseline", "lora", "Q_lora", "lora_plus", "Q_lora_plus"], "Invalid model type."
@@ -166,4 +203,5 @@ if __name__ == "__main__":
          i_only=args.i_only, 
          type_=args.type, 
          num_folds=args.num_folds, 
-         config=config)
+         config=config,
+         checkpoint=args.checkpoint)

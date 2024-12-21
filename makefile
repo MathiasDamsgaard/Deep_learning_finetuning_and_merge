@@ -23,3 +23,10 @@ init_no_wandb:
 
 demo:
 	@python3 main.py --step demo
+
+run_all_experiments:
+	@bsub < hpc/bash/train_baseline.sh
+	@bsub < hpc/bash/train_lora.sh
+	@bsub < hpc/bash/train_q_lora.sh
+	@bsub < hpc/bash/train_lora_plus.sh
+	@bsub < hpc/bash/train_q_lora_plus.sh
