@@ -53,6 +53,19 @@ Most functionality is accessed through main.py with various steps:
 
 Arguments like --learning_rate, --batch_size, etc., can be passed to customize training.
 
+## Makefile Usage
+
+Below are commands defined in the makefile to help manage and run experiments:
+
+- make init  
+  Installs dependencies, initializes Poetry, and prompts for Wandb auth.
+- make init_no_wandb  
+  Same as above but skips Wandb auth.
+- make run_all_experiments  
+  Submits multiple training jobs for different model variations (baseline, LoRA, etc.) on HPC.
+
+For more details, check the makefile at the root of this repo.
+
 ## File Structure (Key Parts)
 
 - src/model/lora_manual.py: Contains the primary LoRATrainer class and get_lora_config function.
